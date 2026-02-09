@@ -245,6 +245,7 @@ set(msg_files
 	versioned/GotoSetpoint.msg
 	versioned/HomePosition.msg
 	versioned/ManualControlSetpoint.msg
+	versioned/ManualControlSetpointOrignal.msg
 	versioned/ModeCompleted.msg
 	versioned/RegisterExtComponentReply.msg
 	versioned/RegisterExtComponentRequest.msg
@@ -263,6 +264,8 @@ set(msg_files
 	versioned/VehicleRatesSetpoint.msg
 	versioned/VehicleStatus.msg
 	versioned/VtolVehicleStatus.msg
+	XtProjectStart.msg
+	XtProjectStop.msg
 )
 list(SORT msg_files)
 

@@ -634,6 +634,7 @@ else
 		zenoh start
 	fi
 
+	xt_project start
 #
 # End of autostart.
 #

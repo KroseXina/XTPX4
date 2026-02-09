@@ -122,7 +122,11 @@ void ManualControl::processInput(hrt_abstime now)
 						     || (fabsf(_throttle_diff.update(_selector.setpoint().throttle, dt_s)) > minimum_stick_change);
 
 		_selector.setpoint().timestamp = now;
-		_manual_control_setpoint_pub.publish(_selector.setpoint());
+		//_manual_control_setpoint_pub.publish(_selector.setpoint());
+		manual_control_setpoint_orignal_s mc_sp_o;
+		static_assert(sizeof(manual_control_setpoint_orignal_s) == sizeof(manual_control_setpoint_s),"Struct size mismatch");
+		memcpy(&mc_sp_o,&_selector.setpoint(),sizeof(mc_sp_o));
+		_manual_control_setpoint_pub.publish(mc_sp_o);
 
 		// Attach scheduling to new samples of the chosen input
 		const int instance = _selector.instance();
@@ -145,7 +149,11 @@ void ManualControl::processInput(hrt_abstime now)
 	} else {
 		if (!_published_invalid_once) {
 			_published_invalid_once = true;
-			_manual_control_setpoint_pub.publish(_selector.setpoint());
+			//_manual_control_setpoint_pub.publish(_selector.setpoint());
+			manual_control_setpoint_orignal_s mc_sp_o;
+			static_assert(sizeof(manual_control_setpoint_orignal_s) == sizeof(manual_control_setpoint_s),"Struct size mismatch");
+			memcpy(&mc_sp_o,&_selector.setpoint(),sizeof(mc_sp_o));
+			_manual_control_setpoint_pub.publish(mc_sp_o);
 		}
 
 		_roll_diff.reset();

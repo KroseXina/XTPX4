@@ -362,5 +362,7 @@ else
 fi
 . ${R}etc/init.d/rc.logging
 
+xt_project start
+
 mavlink boot_complete
 replay trystart

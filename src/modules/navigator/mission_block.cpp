@@ -420,6 +420,22 @@ MissionBlock::is_mission_item_reached_or_completed()
 		if ((get_time_inside(_mission_item) < FLT_EPSILON) ||
 		    (now >= (hrt_abstime)(get_time_inside(_mission_item) * 1_s) + _time_wp_reached)) {
 			time_inside_reached = true;
+			if(_mission_item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT)
+			{
+				/* 悬停(时间)指令逻辑，由XtProject模块进行判断 */
+				time_inside_reached = false;
+
+				_xt_pro_start.timestamp = hrt_absolute_time();
+				_xt_pro_start.missionstart = true;
+				_xt_pro_start.weight = _mission_item.time_inside; //将QGC中输入的时间映射为料重
+				_xt_pro_start_pub.publish(_xt_pro_start);
+
+				if(_xt_pro_stop_sub.update(&_xt_pro_stop))
+				{
+					if(_xt_pro_stop.missionstop)
+						time_inside_reached = true;
+				}
+			}
 		}
 
 		// check if course for exit is reached (only applies for fixed-wing flight)
@@ -498,6 +514,12 @@ MissionBlock::is_mission_item_reached_or_completed()
 								   &curr_sp.lat, &curr_sp.lon);
 			}
 
+			//下一次任务点达到前，发一次false
+			_xt_pro_start.timestamp = hrt_absolute_time();
+			_xt_pro_start.missionstart = false;
+			_xt_pro_start.weight = 0;
+			_xt_pro_start_pub.publish(_xt_pro_start);
+
 			return true; // mission item is reached
 		}
 	}
@@ -559,14 +581,22 @@ MissionBlock::issue_command(const mission_item_s &item)
 float
 MissionBlock::get_time_inside(const mission_item_s &item) const
 {
+	// if ((item.nav_cmd == NAV_CMD_WAYPOINT
+	//      && _navigator->get_vstatus()->vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING) ||
+	//     item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT ||
+	//     item.nav_cmd == NAV_CMD_DELAY) {
+
+	/* 忽略NAV_CMD_LOITER_TIME_LIMIT中的时间参数，直接返回2.0f
+	*  即：达到航点后先悬停2s，再执行Xtpro中的指令 */
 	if ((item.nav_cmd == NAV_CMD_WAYPOINT
 	     && _navigator->get_vstatus()->vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING) ||
-	    item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT ||
-	    item.nav_cmd == NAV_CMD_DELAY) {
+	    item.nav_cmd == NAV_CMD_DELAY){
 
 		// a negative time inside would be invalid
 		return math::max(item.time_inside, 0.0f);
 	}
+	if ((item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT))
+		return 2.0f;
 
 	return 0.0f;
 }

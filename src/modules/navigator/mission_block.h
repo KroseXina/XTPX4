@@ -47,11 +47,15 @@
 #include <drivers/drv_hrt.h>
 #include <systemlib/mavlink_log.h>
 #include <uORB/Publication.hpp>
+#include <uORB/Subscription.hpp>
+#include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/mission.h>
 #include <uORB/topics/position_setpoint_triplet.h>
 #include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/vehicle_global_position.h>
 #include <uORB/topics/vtol_vehicle_status.h>
+#include <uORB/topics/xt_project_start.h>
+#include <uORB/topics/xt_project_stop.h>
 
 // cosine of maximal course error to exit loiter if exit course is enforced (fixed-wing only)
 static constexpr float kCosineExitCourseThreshold = 0.99619f; // cos(5°)
@@ -234,4 +238,10 @@ protected:
 
 private:
 	void updateMaxHaglFailsafe();
+
+	uORB::Publication<xt_project_start_s>          _xt_pro_start_pub{ORB_ID(xt_project_start)};
+	uORB::Subscription                             _xt_pro_stop_sub{ORB_ID(xt_project_stop)};
+
+	xt_project_start_s                             _xt_pro_start;
+	xt_project_stop_s                              _xt_pro_stop;
 };
