@@ -119,6 +119,8 @@ private:
 
 	uORB::Publication<transponder_report_s> _transponder_report_pub{ORB_ID(transponder_report)};
 	uORB::Subscription                      _gps_sub{ORB_ID(sensor_gps)};
-	transponder_report_s     add_vehicle;
+
 	sensor_gps_s             vehicle_gps;
+
+	void publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon);
 };

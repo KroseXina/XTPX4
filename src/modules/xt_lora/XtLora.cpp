@@ -63,45 +63,20 @@ void XtLora::run()
 //测试发布transponder_report并在QGC显示的功能
 	while (!should_exit())
 	{
-		add_vehicle.timestamp = hrt_absolute_time();
-		add_vehicle.icao_address = 10001;
-		snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_01");
 		if(_gps_sub.update(&vehicle_gps))
 		{
-			add_vehicle.lat = vehicle_gps.latitude_deg + 0.01;
-			add_vehicle.lon = vehicle_gps.longitude_deg + 0.01;
+			double lat1 = vehicle_gps.latitude_deg - 0.005;
+			double lon1 = vehicle_gps.longitude_deg - 0.005;
+			publish_transponder_report(1,lat1*1e7,lon1*1e7);
+
+			usleep(500000); //延迟500ms，发第二个点
+
+			double lat2 = vehicle_gps.latitude_deg + 0.005;
+			double lon2 = vehicle_gps.longitude_deg + 0.005;
+			publish_transponder_report(2,lat2*1e7,lon2*1e7);
+
+			usleep(2000000); //2s更新一次
 		}
-		add_vehicle.altitude = 0.2;
-		add_vehicle.heading = 0;
-		add_vehicle.hor_velocity = 0;
-		add_vehicle.ver_velocity = 0;
-		add_vehicle.emitter_type = transponder_report_s::ADSB_EMITTER_TYPE_UAV;
-		add_vehicle.tslc = 1;
-		add_vehicle.flags = transponder_report_s::PX4_ADSB_FLAGS_VALID_COORDS | transponder_report_s::PX4_ADSB_FLAGS_VALID_CALLSIGN;
-
-		_transponder_report_pub.publish(add_vehicle);
-
-		usleep(500000); //延迟500ms，发第二个点
-
-		add_vehicle.timestamp = hrt_absolute_time();
-		add_vehicle.icao_address = 10002;
-		snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_02");
-		if(_gps_sub.update(&vehicle_gps))
-		{
-			add_vehicle.lat = vehicle_gps.latitude_deg - 0.01;
-			add_vehicle.lon = vehicle_gps.longitude_deg - 0.01;
-		}
-		add_vehicle.altitude = 0.2;
-		add_vehicle.heading = 0;
-		add_vehicle.hor_velocity = 0;
-		add_vehicle.ver_velocity = 0;
-		add_vehicle.emitter_type = transponder_report_s::ADSB_EMITTER_TYPE_GLIDER;
-		add_vehicle.tslc = 1;
-		add_vehicle.flags = transponder_report_s::PX4_ADSB_FLAGS_VALID_COORDS | transponder_report_s::PX4_ADSB_FLAGS_VALID_CALLSIGN;
-
-		_transponder_report_pub.publish(add_vehicle);
-
-		usleep(1000000); //1s更新一次
 	}
 
 #else
@@ -132,21 +107,7 @@ void XtLora::run()
 				// PX4_INFO("receive data: node--%d, lat--%d, lon--%d",
 				// 	_rec_struct.node_id,_rec_struct.lat,_rec_struct.lon);
 
-				add_vehicle.timestamp = hrt_absolute_time();
-				add_vehicle.icao_address = 1000 + _rec_struct.node_id;
-				snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_%02d",_rec_struct.node_id);
-				add_vehicle.lat = _rec_struct.lat / 1e7;
-				add_vehicle.lon = _rec_struct.lon / 1e7;
-				add_vehicle.altitude = 0.2;
-				add_vehicle.heading = 0;
-				add_vehicle.hor_velocity = 0;
-				add_vehicle.ver_velocity = 0;
-				add_vehicle.emitter_type = transponder_report_s::ADSB_EMITTER_TYPE_UAV;
-				add_vehicle.tslc = 1;
-				add_vehicle.flags = transponder_report_s::PX4_ADSB_FLAGS_VALID_COORDS | transponder_report_s::PX4_ADSB_FLAGS_VALID_CALLSIGN;
-
-				_transponder_report_pub.publish(add_vehicle);
-
+				publish_transponder_report(_rec_struct.node_id,_rec_struct.lat,_rec_struct.lon);
 				_rec_struct_vaild = false;
 			}
 		}
@@ -264,6 +225,25 @@ uint16_t XtLora::crc_ccitt(const uint8_t *data, uint8_t len)
 		}
 	}
 	return crc;
+}
+
+void XtLora::publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon)
+{
+	transponder_report_s msg{};
+
+	msg.timestamp = hrt_absolute_time();
+	msg.icao_address = 1000 + node_id;
+	snprintf(msg.callsign,sizeof(msg.callsign),"XT_%02d",node_id);
+	msg.lat = static_cast<double>(lat) / 1e7;  //transponder_report_s中为double类型
+	msg.lon = static_cast<double>(lon) / 1e7;
+	msg.altitude = 0;
+	msg.emitter_type = transponder_report_s::ADSB_EMITTER_TYPE_UAV;
+	msg.flags = transponder_report_s::PX4_ADSB_FLAGS_VALID_COORDS |
+		transponder_report_s::PX4_ADSB_FLAGS_VALID_ALTITUDE |
+                transponder_report_s::PX4_ADSB_FLAGS_VALID_CALLSIGN |
+		transponder_report_s::PX4_ADSB_FLAGS_RETRANSLATE;
+
+	_transponder_report_pub.publish(msg);
 }
 
 int XtLora::task_spawn(int argc, char *argv[])
