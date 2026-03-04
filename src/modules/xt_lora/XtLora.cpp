@@ -65,7 +65,7 @@ void XtLora::run()
 	{
 		add_vehicle.timestamp = hrt_absolute_time();
 		add_vehicle.icao_address = 10001;
-		snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_%02d",(add_vehicle.icao_address-1000));
+		snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_01");
 		if(_gps_sub.update(&vehicle_gps))
 		{
 			add_vehicle.lat = vehicle_gps.latitude_deg + 0.01;
@@ -85,7 +85,7 @@ void XtLora::run()
 
 		add_vehicle.timestamp = hrt_absolute_time();
 		add_vehicle.icao_address = 10002;
-		snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_%02d",(add_vehicle.icao_address-1000));
+		snprintf(add_vehicle.callsign,sizeof(add_vehicle.callsign),"XT_02");
 		if(_gps_sub.update(&vehicle_gps))
 		{
 			add_vehicle.lat = vehicle_gps.latitude_deg - 0.01;
