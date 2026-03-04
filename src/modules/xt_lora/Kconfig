@@ -1,0 +1,5 @@
+menuconfig MODULES_XT_LORA
+	bool "xt_lora"
+	default n
+	---help---
+		Enable support for xt_lora
