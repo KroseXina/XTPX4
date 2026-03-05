@@ -47,9 +47,11 @@
 #include <poll.h>
 #include <string.h>
 #include <math.h>
+#include <containers/Array.hpp>
 #include <termios.h>
 #include <lib/mathlib/mathlib.h>
 #include <drivers/drv_hrt.h>
+#include <dataman_client/DatamanClient.hpp>
 
 #include <uORB/uORB.h>
 #include <uORB/Publication.hpp>
@@ -57,6 +59,10 @@
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/transponder_report.h>
 #include <uORB/topics/sensor_gps.h>
+#include <navigator/navigation.h>
+#include <uORB/topics/mission.h>
+#include <uORB/topics/mission_result.h>
+#include <uORB/topics/input_rc.h>
 
 using namespace time_literals;
 
@@ -105,6 +111,7 @@ private:
 		WAIT_CRC2
 	};
 
+	/* 用以接收串口数据 */
 	lora_struct _rec_struct;
 	bool _rec_struct_vaild {false};
 	parse_state _parse_state {WAIT_HEAD1};
@@ -113,14 +120,28 @@ private:
 	uint8_t _index{0};
 	uint16_t _recv_rcr;
 
+	/* 用以生成航点 */
+	DatamanClient _dataman_client{};
+	static constexpr int MAX_TARGET = 20;
+	px4::Array<transponder_report_s,MAX_TARGET> _targets{};
+	int _target_count{0};
+	bool waypoint_valid {false};
+
+	/* 话题订阅及发布 */
+	uORB::Publication<transponder_report_s> _transponder_report_pub{ORB_ID(transponder_report)};
+	uORB::Publication<mission_s>            _mission_pub{ORB_ID(mission)};
+	uORB::Subscription                      _input_rc_sub{ORB_ID(input_rc)};
+	uORB::Subscription                      _gps_sub{ORB_ID(sensor_gps)};
+
+	input_rc_s               _input_rc;
+	sensor_gps_s             vehicle_gps;
+
+	/* 函数区域 */
 	bool  open_uart();
 	void  handle_receive_data(uint8_t *data, int len);
 	uint16_t crc_ccitt(const uint8_t *data, uint8_t len);
-
-	uORB::Publication<transponder_report_s> _transponder_report_pub{ORB_ID(transponder_report)};
-	uORB::Subscription                      _gps_sub{ORB_ID(sensor_gps)};
-
-	sensor_gps_s             vehicle_gps;
-
+	// 发布adsb vehicle，在qgc界面生成定位模型；同时维护targets列表
 	void publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon);
+	// 根据目标经纬度信息，生成航点/任务信息
+	void create_waypoint();
 };

@@ -39,6 +39,7 @@
  *
  * @version V0：新建module,读取串口数据，并向QGC发布ADSB_Vehicle mavlink消息以实现显示
  * 		ADSB_Vehicle对应的msg是transponder_report
+ * 		根据经纬度信息生成waypoint
  *
  * @author 巡天科技
  */
@@ -60,24 +61,51 @@ XtLora::~XtLora()
 void XtLora::run()
 {
 #if 1
-//测试发布transponder_report并在QGC显示的功能
+//测试使用
 	while (!should_exit())
 	{
 		if(_gps_sub.update(&vehicle_gps))
 		{
-			double lat1 = vehicle_gps.latitude_deg - 0.005;
-			double lon1 = vehicle_gps.longitude_deg - 0.005;
+			double lat1 = vehicle_gps.latitude_deg - 0.002;
+			double lon1 = vehicle_gps.longitude_deg - 0.002;
 			publish_transponder_report(1,lat1*1e7,lon1*1e7);
 
 			usleep(500000); //延迟500ms，发第二个点
 
-			double lat2 = vehicle_gps.latitude_deg + 0.005;
-			double lon2 = vehicle_gps.longitude_deg + 0.005;
+			double lat2 = vehicle_gps.latitude_deg + 0.002;
+			double lon2 = vehicle_gps.longitude_deg + 0.002;
 			publish_transponder_report(2,lat2*1e7,lon2*1e7);
-
-			usleep(2000000); //2s更新一次
 		}
+
+#ifdef __PX4_POSIX
+		//仿真环境中，仅触发一次waypoint生成
+		if(!waypoint_valid)
+		{
+			create_waypoint();
+			waypoint_valid = true;
+		}
+
+#else
+		//物理环境，依靠遥控器输入触发waypoint生成
+		bool rc_trigger_now = false;
+
+		if(_input_rc_sub.update(&_input_rc))
+		{
+			const int channel = 7; //使用遥控器第8通道
+			if(channel < _input_rc.channel_count)
+				rc_trigger_now = (_input_rc.values[channel] > 1700);  //开关高位
+
+			//上升沿检测
+			if(rc_trigger_now && !waypoint_valid)
+				create_waypoint();
+
+			waypoint_valid = rc_trigger_now;
+		}
+#endif
+
+		usleep(2000000); //2s更新一次
 	}
+
 
 #else
 	if(!open_uart())
@@ -234,7 +262,7 @@ void XtLora::publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon)
 	msg.timestamp = hrt_absolute_time();
 	msg.icao_address = 1000 + node_id;
 	snprintf(msg.callsign,sizeof(msg.callsign),"XT_%02d",node_id);
-	msg.lat = static_cast<double>(lat) / 1e7;  //transponder_report_s中为double类型
+	msg.lat = static_cast<double>(lat) / 1e7;  //transponder_report_s中为double类型.degree
 	msg.lon = static_cast<double>(lon) / 1e7;
 	msg.altitude = 0;
 	msg.emitter_type = transponder_report_s::ADSB_EMITTER_TYPE_UAV;
@@ -244,6 +272,120 @@ void XtLora::publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon)
 		transponder_report_s::PX4_ADSB_FLAGS_RETRANSLATE;
 
 	_transponder_report_pub.publish(msg);
+
+	//每次发布transponder_report,维护targets列表，用以生成航点
+	bool found = false;
+	for(int i=0;i<_target_count;++i)
+	{
+		if(_targets[i].icao_address == msg.icao_address)
+		{
+			_targets[i] = msg;
+			found = true;
+			break;
+		}
+	}
+
+	if(!found && _target_count < MAX_TARGET)
+	{
+		_targets[_target_count++] = msg;
+	}
+
+	//为targets列表排序
+	for (int i = 0; i < _target_count - 1; ++i)
+	{
+		for (int j = i + 1; j < _target_count; ++j)
+		{
+			if (_targets[j].icao_address < _targets[i].icao_address)
+			{
+				auto tmp = _targets[i];
+				_targets[i] = _targets[j];
+				_targets[j] = tmp;
+			}
+		}
+	}
+}
+
+void XtLora::create_waypoint()
+{
+	//清理旧的mission信息
+	mission_s mission_old{};
+	_dataman_client.readSync(DM_KEY_MISSION_STATE,
+				0, reinterpret_cast<uint8_t *>(&mission_old),
+				sizeof(mission_s));
+	if(mission_old.count > _target_count)
+	{
+		mission_item_s empty_item{};
+		for(int i=_target_count;i<mission_old.count;i++)
+		{
+			_dataman_client.writeSync(
+				DM_KEY_WAYPOINTS_OFFBOARD_0,
+				i,
+				reinterpret_cast<uint8_t *>(&empty_item),
+				sizeof(mission_item_s)
+				);
+		}
+	}
+
+	//将各个航点信息写入dataman
+	for (int i = 0; i < _target_count; ++i)
+	{
+		mission_item_s mission_item{};
+		mission_item.nav_cmd = NAV_CMD_WAYPOINT;
+		mission_item.frame = NAV_FRAME_GLOBAL_RELATIVE_ALT;
+
+		mission_item.lat = _targets[i].lat;
+		mission_item.lon = _targets[i].lon;
+		mission_item.altitude = 1.0f;
+
+		mission_item.autocontinue = true;
+		mission_item.acceptance_radius = 10.f;
+
+		bool success = _dataman_client.writeSync(
+		DM_KEY_WAYPOINTS_OFFBOARD_0,
+		i,
+		reinterpret_cast<uint8_t *>(&mission_item),
+		sizeof(mission_item_s)
+		);
+
+		if (!success)
+		{
+			PX4_ERR("Dataman write failed at %d", i);
+			return;
+		}
+	}
+
+	//将mission信息写入dataman，发布话题以触发navigator更新
+	mission_s mission{};
+	mission.timestamp = hrt_absolute_time();
+
+	mission.mission_dataman_id = DM_KEY_WAYPOINTS_OFFBOARD_0;
+	mission.fence_dataman_id   = DM_KEY_FENCE_POINTS_0;
+	mission.safepoint_dataman_id = DM_KEY_SAFE_POINTS_0;
+
+	mission.count = _target_count;
+	mission.current_seq = -1;
+	mission.land_start_index = -1;
+	mission.land_index = -1;
+	mission.mission_id = hrt_absolute_time();
+	mission.geofence_id = 0;
+	mission.safe_points_id = 0;
+
+	bool state_write = _dataman_client.writeSync(
+		DM_KEY_MISSION_STATE,
+		0,
+		reinterpret_cast<uint8_t *>(&mission),
+		sizeof(mission_s)
+	);
+
+	if (!state_write)
+	{
+		PX4_ERR("Mission state write failed");
+		return;
+	}
+
+	usleep(100000);
+	_mission_pub.publish(mission);
+
 }
 
 int XtLora::task_spawn(int argc, char *argv[])

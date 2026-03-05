@@ -635,6 +635,7 @@ else
 	fi
 
 	xt_project start
+	xt_lora start
 #
 # End of autostart.
 #
