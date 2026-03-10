@@ -60,7 +60,7 @@ XtLora::~XtLora()
 
 void XtLora::run()
 {
-#if 1
+#if 0
 //测试使用
 	while (!should_exit())
 	{
@@ -111,7 +111,7 @@ void XtLora::run()
 	if(!open_uart())
 		return;
 
-	PX4_INFO("Open /dev/ttyS4 success.");
+	PX4_INFO("Open /dev/ttyS2 success.");
 
 	uint8_t buffer[128];
 
@@ -137,6 +137,22 @@ void XtLora::run()
 
 				publish_transponder_report(_rec_struct.node_id,_rec_struct.lat,_rec_struct.lon);
 				_rec_struct_vaild = false;
+
+				//物理环境，依靠遥控器输入触发waypoint生成
+				bool rc_trigger_now = false;
+
+				if(_input_rc_sub.update(&_input_rc))
+				{
+					const int channel = 7; //使用遥控器第8通道
+					if(channel < _input_rc.channel_count)
+						rc_trigger_now = (_input_rc.values[channel] > 1700);  //开关高位
+
+					//上升沿检测
+					if(rc_trigger_now && !waypoint_valid)
+						create_waypoint();
+
+					waypoint_valid = rc_trigger_now;
+				}
 			}
 		}
 	}
@@ -147,12 +163,12 @@ void XtLora::run()
 
 bool XtLora::open_uart()
 {
-	//尝试打开串口
-	_fd = ::open("/dev/ttyS4",O_RDWR | O_NOCTTY | O_NONBLOCK);
+	//尝试打开串口,ttyS2对应GPS2/uart4
+	_fd = ::open("/dev/ttyS2",O_RDWR | O_NOCTTY | O_NONBLOCK);
 
 	if(_fd < 0)
 	{
-		PX4_ERR("Open ttyS4 failed.");
+		PX4_ERR("Open ttyS2 failed.");
 		return false;
 	}
 
