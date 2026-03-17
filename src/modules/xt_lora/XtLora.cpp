@@ -66,15 +66,17 @@ void XtLora::run()
 	{
 		if(_gps_sub.update(&vehicle_gps))
 		{
-			double lat1 = vehicle_gps.latitude_deg - 0.002;
-			double lon1 = vehicle_gps.longitude_deg - 0.002;
+			double lat1 = vehicle_gps.latitude_deg - 0.0005;
+			double lon1 = vehicle_gps.longitude_deg + 0.0005;
 			publish_transponder_report(1,lat1*1e7,lon1*1e7);
 
 			usleep(500000); //延迟500ms，发第二个点
 
-			double lat2 = vehicle_gps.latitude_deg + 0.002;
-			double lon2 = vehicle_gps.longitude_deg + 0.002;
+			double lat2 = vehicle_gps.latitude_deg + 0.0005;
+			double lon2 = vehicle_gps.longitude_deg - 0.0005;
 			publish_transponder_report(2,lat2*1e7,lon2*1e7);
+
+			usleep(50000);
 		}
 
 #ifdef __PX4_POSIX
@@ -351,10 +353,11 @@ void XtLora::create_waypoint()
 
 		mission_item.lat = _targets[i].lat;
 		mission_item.lon = _targets[i].lon;
-		mission_item.altitude = 1.0f;
+		mission_item.altitude = 5.0f;
+		mission_item.altitude_is_relative = true;
 
 		mission_item.autocontinue = true;
-		mission_item.acceptance_radius = 10.f;
+		mission_item.acceptance_radius = 1.0f;
 
 		bool success = _dataman_client.writeSync(
 		DM_KEY_WAYPOINTS_OFFBOARD_0,
