@@ -1,0 +1,5 @@
+menuconfig DRIVERS_DISTANCE_SENSOR_TFMINI_FORWARD
+	bool "tfmini_forward"
+	default n
+	---help---
+		Enable support for tfmini_forward
