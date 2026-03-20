@@ -141,7 +141,7 @@ $ tfmini stop
 extern "C" __EXPORT int tfmini_forward_main(int argc, char *argv[])
 {
 	int ch = 0;
-	uint8_t rotation = distance_sensor_s::ROTATION_DOWNWARD_FACING;
+	uint8_t rotation = distance_sensor_s::ROTATION_FORWARD_FACING;
 	const char *device_path = TFMINI_DEFAULT_PORT;
 	int myoptind = 1;
 	const char *myoptarg = nullptr;

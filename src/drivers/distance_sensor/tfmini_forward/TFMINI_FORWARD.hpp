@@ -63,7 +63,7 @@ using namespace time_literals;
 class TFMINI_FORWARD : public px4::ScheduledWorkItem
 {
 public:
-	TFMINI_FORWARD(const char *port, uint8_t rotation = distance_sensor_s::ROTATION_DOWNWARD_FACING);
+	TFMINI_FORWARD(const char *port, uint8_t rotation = distance_sensor_s::ROTATION_FORWARD_FACING);
 	virtual ~TFMINI_FORWARD();
 
 	int init();

@@ -2,13 +2,13 @@ module_name: Benewake TFmini Rangefinder Forward
 serial_config:
     - command: tfmini_forward start -d ${SERIAL_DEV}
       port_config_param:
-        name: SENS_TFMINI_FORWARD_CFG
+        name: SENS_TF_FWD_CFG
         group: Sensors
 
 parameters:
     - group: Sensors
       definitions:
-        SENS_TFMINI_FORWARD_HW:
+        SENS_TF_FWD_HW:
             description:
                 short: Hardware Model
                 long: Models differ in range and FoV.

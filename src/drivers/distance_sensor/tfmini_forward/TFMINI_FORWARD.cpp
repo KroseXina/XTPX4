@@ -232,7 +232,7 @@ TFMINI_FORWARD::collect()
 
 		// parse buffer
 		for (int i = 0; i < ret; i++) {
-			tfmini_parse(readbuf[i], _linebuf, &_linebuf_index, &_parse_state, &distance_m);
+			tfmini_forward_parse(readbuf[i], _linebuf, &_linebuf_index, &_parse_state, &distance_m);
 		}
 
 		// bytes left to parse
