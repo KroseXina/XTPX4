@@ -32,7 +32,7 @@
  ****************************************************************************/
 
 #include "TFMINI.hpp"
-
+#include <lib/parameters/param.h>
 #include <px4_platform_common/getopt.h>
 
 /**
@@ -161,6 +161,10 @@ extern "C" __EXPORT int tfmini_main(int argc, char *argv[])
 			return PX4_ERROR;
 		}
 	}
+
+	int32_t r_read;
+	param_get(param_find("SENS_TFMINI_R"), &r_read);
+	rotation = r_read;
 
 	if (myoptind >= argc) {
 		PX4_ERR("unrecognized command");
