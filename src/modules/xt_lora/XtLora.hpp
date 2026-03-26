@@ -52,17 +52,17 @@
 #include <lib/mathlib/mathlib.h>
 #include <drivers/drv_hrt.h>
 #include <dataman_client/DatamanClient.hpp>
+#include <navigator/navigation.h>
 
 #include <uORB/uORB.h>
 #include <uORB/Publication.hpp>
 #include <uORB/Subscription.hpp>
 #include <uORB/SubscriptionCallback.hpp>
 #include <uORB/topics/transponder_report.h>
-#include <uORB/topics/sensor_gps.h>
-#include <navigator/navigation.h>
 #include <uORB/topics/mission.h>
 #include <uORB/topics/mission_result.h>
 #include <uORB/topics/input_rc.h>
+#include <uORB/topics/vehicle_global_position.h>
 
 using namespace time_literals;
 
@@ -131,10 +131,10 @@ private:
 	uORB::Publication<transponder_report_s> _transponder_report_pub{ORB_ID(transponder_report)};
 	uORB::Publication<mission_s>            _mission_pub{ORB_ID(mission)};
 	uORB::Subscription                      _input_rc_sub{ORB_ID(input_rc)};
-	uORB::Subscription                      _gps_sub{ORB_ID(sensor_gps)};
+	uORB::Subscription                      _global_pos_sub{ORB_ID(vehicle_global_position)};
 
-	input_rc_s               _input_rc;
-	sensor_gps_s             vehicle_gps;
+	input_rc_s                 _input_rc;
+	vehicle_global_position_s  _global_pos;
 
 	/* 函数区域 */
 	bool  open_uart();

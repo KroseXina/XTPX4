@@ -60,60 +60,9 @@ XtLora::~XtLora()
 
 void XtLora::run()
 {
-#if 0
-//测试使用
-	while (!should_exit())
-	{
-		if(_gps_sub.update(&vehicle_gps))
-		{
-			double lat1 = vehicle_gps.latitude_deg - 0.0005;
-			double lon1 = vehicle_gps.longitude_deg + 0.0005;
-			publish_transponder_report(1,lat1*1e7,lon1*1e7);
-
-			usleep(500000); //延迟500ms，发第二个点
-
-			double lat2 = vehicle_gps.latitude_deg + 0.0005;
-			double lon2 = vehicle_gps.longitude_deg - 0.0005;
-			publish_transponder_report(2,lat2*1e7,lon2*1e7);
-
-			usleep(50000);
-		}
-
-#ifdef __PX4_POSIX
-		//仿真环境中，仅触发一次waypoint生成
-		if(!waypoint_valid)
-		{
-			create_waypoint();
-			waypoint_valid = true;
-		}
-
-#else
-		//物理环境，依靠遥控器输入触发waypoint生成
-		bool rc_trigger_now = false;
-
-		if(_input_rc_sub.update(&_input_rc))
-		{
-			const int channel = 7; //使用遥控器第8通道
-			if(channel < _input_rc.channel_count)
-				rc_trigger_now = (_input_rc.values[channel] > 1700);  //开关高位
-
-			//上升沿检测
-			if(rc_trigger_now && !waypoint_valid)
-				create_waypoint();
-
-			waypoint_valid = rc_trigger_now;
-		}
-#endif
-
-		usleep(2000000); //2s更新一次
-	}
-
-
-#else
 	if(!open_uart())
 		return;
-
-	PX4_INFO("Open /dev/ttyS2 success.");
+	//PX4_INFO("Open /dev/ttyS2 success.");
 
 	uint8_t buffer[128];
 
@@ -160,7 +109,6 @@ void XtLora::run()
 	}
 
 	::close(_fd);
-#endif
 }
 
 bool XtLora::open_uart()
@@ -344,6 +292,29 @@ void XtLora::create_waypoint()
 		}
 	}
 
+	//获取当前位置信息作为起飞点
+	if(!_global_pos_sub.copy(&_global_pos) || !_global_pos.lat_lon_valid)
+		return;
+	mission_item_s takeoff{};
+	takeoff.nav_cmd = NAV_CMD_TAKEOFF;
+	takeoff.frame = NAV_FRAME_GLOBAL_RELATIVE_ALT;
+
+	takeoff.lat = _global_pos.lat;
+	takeoff.lon = _global_pos.lon;
+	takeoff.yaw = NAN;
+	takeoff.altitude = 5.0f;
+	takeoff.altitude_is_relative = true;
+
+	takeoff.autocontinue = true;
+	takeoff.acceptance_radius = 1.0f;
+
+	_dataman_client.writeSync(
+		DM_KEY_WAYPOINTS_OFFBOARD_0,
+		0,
+		reinterpret_cast<uint8_t *>(&takeoff),
+		sizeof(mission_item_s)
+	);
+
 	//将各个航点信息写入dataman
 	for (int i = 0; i < _target_count; ++i)
 	{
@@ -353,6 +324,7 @@ void XtLora::create_waypoint()
 
 		mission_item.lat = _targets[i].lat;
 		mission_item.lon = _targets[i].lon;
+		mission_item.yaw = NAN;
 		mission_item.altitude = 5.0f;
 		mission_item.altitude_is_relative = true;
 
@@ -361,7 +333,7 @@ void XtLora::create_waypoint()
 
 		bool success = _dataman_client.writeSync(
 		DM_KEY_WAYPOINTS_OFFBOARD_0,
-		i,
+		i + 1,
 		reinterpret_cast<uint8_t *>(&mission_item),
 		sizeof(mission_item_s)
 		);
@@ -373,6 +345,27 @@ void XtLora::create_waypoint()
 		}
 	}
 
+	//将当前位置作为返航点
+	mission_item_s land{};
+	land.nav_cmd = NAV_CMD_RETURN_TO_LAUNCH;
+	land.frame = NAV_FRAME_MISSION;
+
+	land.lat = NAN;
+	land.lon = NAN;
+	land.yaw = NAN;
+	land.altitude = NAN;
+
+	land.autocontinue = true;
+	land.acceptance_radius = NAN;
+
+	_dataman_client.writeSync(
+		DM_KEY_WAYPOINTS_OFFBOARD_0,
+		_target_count + 1,
+		reinterpret_cast<uint8_t *>(&land),
+		sizeof(mission_item_s)
+	);
+
+
 	//将mission信息写入dataman，发布话题以触发navigator更新
 	mission_s mission{};
 	mission.timestamp = hrt_absolute_time();
@@ -381,7 +374,7 @@ void XtLora::create_waypoint()
 	mission.fence_dataman_id   = DM_KEY_FENCE_POINTS_0;
 	mission.safepoint_dataman_id = DM_KEY_SAFE_POINTS_0;
 
-	mission.count = _target_count;
+	mission.count = _target_count + 2;
 	mission.current_seq = -1;
 	mission.land_start_index = -1;
 	mission.land_index = -1;
