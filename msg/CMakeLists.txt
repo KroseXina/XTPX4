@@ -264,6 +264,7 @@ set(msg_files
 	versioned/VehicleRatesSetpoint.msg
 	versioned/VehicleStatus.msg
 	versioned/VtolVehicleStatus.msg
+	XtDronecanKeyvalue.msg
 	XtProjectStart.msg
 	XtProjectStop.msg
 )
