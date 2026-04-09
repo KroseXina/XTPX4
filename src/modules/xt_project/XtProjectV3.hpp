@@ -60,6 +60,7 @@
 #include <uORB/topics/xt_project_stop.h>
 #include <uORB/topics/manual_control_setpoint.h>
 #include <uORB/topics/manual_control_setpoint_orignal.h>
+#include <uORB/topics/xt_dronecan_keyvalue.h>
 
 using namespace time_literals;
 
@@ -88,12 +89,14 @@ private:
 	uORB::Publication<manual_control_setpoint_s>     _mc_setpoint_pub{ORB_ID(manual_control_setpoint)};
 
 	uORB::Subscription                               _xt_pro_start_sub{ORB_ID(xt_project_start)};
+	uORB::Subscription                               _xt_keyvalue_sub{ORB_ID(xt_dronecan_keyvalue)};
 	uORB::SubscriptionCallbackWorkItem               _mc_setpoint_sub{this,ORB_ID(manual_control_setpoint_orignal)};
 
 	manual_control_setpoint_s                       _mc_setpoint;
 	manual_control_setpoint_orignal_s               _mc_setpoint_org;
 	xt_project_stop_s                               _xt_pro_stop;
 	xt_project_start_s                              _xt_pro_start;
+	xt_dronecan_keyvalue_s                          _xt_keyvalue;
 
 	hrt_abstime                                     now_time{0};
 	hrt_abstime                                     start_time{0};
@@ -107,4 +110,11 @@ private:
 
 	/* 处理重量传感器数据 */
 	float deal_with_weight_sensor();
+
+	/* 此处枚举与uavcan_keyvaluebridge中保持一致 */
+	enum key_type
+	{
+		KEY_DISTANCE = 0,
+		KEY_WEIGHT = 1
+	};
 };

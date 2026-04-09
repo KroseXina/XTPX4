@@ -31,66 +31,56 @@
  *
  ****************************************************************************/
 
-#pragma once
+#include "key_value.hpp"
 
-#include "UavcanSubscriberBase.hpp"
+UavcanKeyValueBridge::UavcanKeyValueBridge(uavcan::INode &node) :
+	UavcanSensorBridgeBase("uavcan_key_value", ORB_ID(xt_dronecan_keyvalue)),
+	_sub_keyvalue(node),
+	_px4_rangefinder(1,0)
+{ }
 
-#include <uavcan/protocol/debug/KeyValue.hpp>
-
-#include <uORB/Publication.hpp>
-#include <uORB/topics/xt_dronecan_keyvalue.h>
-
-namespace uavcannode
+int UavcanKeyValueBridge::init()
 {
+	int res = _sub_keyvalue.start(KeyValueBinder(this, &UavcanKeyValueBridge::keyvalue_cb));
 
-class KeyValueSub;
+	if (res < 0) {
+		DEVICE_LOG("failed to start uavcan sub: %d", res);
+		return res;
+	}
 
-typedef uavcan::MethodBinder<KeyValueSub *,
-	void (KeyValueSub::*)(const uavcan::ReceivedDataStructure<uavcan::protocol::debug::KeyValue>&)>
-	KeyValueBinder;
+	return 0;
+}
 
-class KeyValueSub :
-	public UavcanSubscriberBase,
-	private uavcan::Subscriber<uavcan::protocol::debug::KeyValue, KeyValueBinder>
+void UavcanKeyValueBridge::keyvalue_cb(const
+	uavcan::ReceivedDataStructure<uavcan::protocol::debug::KeyValue> &msg)
 {
-public:
-	KeyValueSub(uavcan::INode &node) :
-		UavcanSubscriberBase(uavcan::protocol::debug::KeyValue::DefaultDataTypeID),
-		uavcan::Subscriber<uavcan::protocol::debug::KeyValue, KeyValueBinder>(node)
-	{}
-
-	bool init()
+	if(strcmp(msg.key.c_str(),"fw") == 0)
 	{
-		if (start(KeyValueBinder(this, &KeyValueSub::callback)) < 0) {
-			PX4_ERR("uavcan::protocol::debug::KeyValue subscription failed");
-			return false;
-		}
+		//uav21r雷达发布距离信息
+		_px4_rangefinder.set_device_id(9);
+		_px4_rangefinder.set_rangefinder_type(distance_sensor_s::MAV_DISTANCE_SENSOR_RADAR);
+		_px4_rangefinder.set_min_distance(1.5f);
+		_px4_rangefinder.set_max_distance(27.0f);
+		_px4_rangefinder.set_hfov(math::radians(30.0f));
+		_px4_rangefinder.set_vfov(math::radians(10.0f));
+		_px4_rangefinder.set_orientation(distance_sensor_s::ROTATION_FORWARD_FACING);
 
-		return true;
+		hrt_abstime timestamp = hrt_absolute_time();
+		_px4_rangefinder.update(timestamp, msg.value);
 	}
-
-	void PrintInfo() const override
+	else
 	{
-		printf("\t%s:%d -> %s\n",
-		       uavcan::protocol::debug::KeyValue::getDataTypeFullName(),
-		       uavcan::protocol::debug::KeyValue::DefaultDataTypeID,
-		       _debug_key_value_pub.get_topic()->o_name);
+		//其余can设备发布xt_dronecan_keyvalue
+		xt_dronecan_keyvalue_s keyvalue;
+		keyvalue.timestamp = hrt_absolute_time();
+		keyvalue.key = UavcanKeyValueBridge::KEY_WEIGHT;
+		keyvalue.value = msg.value;
+
+		_dronecan_keyvalue_pub.publish(keyvalue);
 	}
+}
 
-private:
-	void callback(const uavcan::ReceivedDataStructure<uavcan::protocol::debug::KeyValue> &msg)
-	{
-
-		xt_dronecan_keyvalue_s dronecan_keyvalue;
-
-		dronecan_keyvalue.timestamp = hrt_absolute_time();
-		dronecan_keyvalue.value = msg.value;
-		dronecan_keyvalue.key = msg.key;
-
-		_dronecan_keyvalue_pub.publish(dronecan_keyvalue);
-
-	}
-
-	uORB::Publication<xt_dronecan_keyvalue_s> _dronecan_keyvalue_pub{ORB_ID(xt_dronecan_keyvalue)};
-};
-} // namespace uavcannode
+int UavcanKeyValueBridge::init_driver(uavcan_bridge::Channel *channel)
+{
+	return PX4_OK;
+}

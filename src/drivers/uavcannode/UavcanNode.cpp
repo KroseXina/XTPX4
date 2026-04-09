@@ -121,8 +121,6 @@
 #include "Subscribers/ServoArrayCommand.hpp"
 #endif // CONFIG_UAVCANNODE_SERVO_ARRAY_COMMAND
 
-#include "Subscribers/KeyValueSub.hpp"
-
 using namespace time_literals;
 
 namespace uavcannode
@@ -467,9 +465,6 @@ int UavcanNode::init(uavcan::NodeID node_id, UAVCAN_DRIVER::BusEvent &bus_events
 #if defined(CONFIG_UAVCANNODE_SERVO_ARRAY_COMMAND)
 	_subscriber_list.add(new ServoArrayCommand(_node));
 #endif // CONFIG_UAVCANNODE_SERVO_ARRAY_COMMAND
-
-	// 添加对KeyValue的支持
-	_subscriber_list.add(new KeyValueSub(_node));
 
 	for (auto &subscriber : _subscriber_list) {
 		subscriber->init();

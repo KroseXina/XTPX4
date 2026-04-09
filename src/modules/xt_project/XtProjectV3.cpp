@@ -151,8 +151,14 @@ void XtProject::publish_manual_control_setpoint(uint16_t pwm)
 }
 
 float XtProject::deal_with_weight_sensor()
-{//TODO:
-	return 100.0f;
+{
+	if(_xt_keyvalue_sub.update(&_xt_keyvalue))
+	{
+		if(_xt_keyvalue.key == XtProject::KEY_WEIGHT)
+			return _xt_keyvalue.value;
+	}
+
+	return 0.0f;
 }
 
 int XtProject::task_spawn(int argc, char *argv[])
