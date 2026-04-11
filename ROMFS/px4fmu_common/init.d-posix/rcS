@@ -367,4 +367,4 @@ xt_project start
 mavlink boot_complete
 replay trystart
 
-xt_lora start
+# xt_lora start

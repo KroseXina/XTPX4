@@ -53,7 +53,6 @@ XtProject::XtProject():
 {
 	PX4_INFO("Hello XT!");
 	_xt_pro_stop.missionstop = false;
-	weight_total = deal_with_weight_sensor();
 }
 
 bool XtProject::init()
@@ -80,12 +79,15 @@ void XtProject::Run()
 
 	/* 接入称重传感器数据，赋值到_xt_pro_stop.weight */
 	_xt_pro_stop.weight = deal_with_weight_sensor();
+	if(!inMission)
+		weight_total = _xt_pro_stop.weight;
 
 	/* 判断飞机是否达到了悬停点，并可以开始任务(该话题从mission_block中发布，频率为25Hz) */
 	if(_xt_pro_start_sub.update(&_xt_pro_start))
 	{
 		if(_xt_pro_start.missionstart)
 		{
+			inMission = true;
 			/* 此处产生任务指令，打开舵机、测量料重etc..
 			*  需要排出的weight数据来自QGC输入的时间值 */
 			if(sum >= 125)
@@ -109,7 +111,7 @@ void XtProject::Run()
 				if(sum >= 25)
 				{
 					_xt_pro_stop.missionstop = true;
-					weight_total = deal_with_weight_sensor();
+					inMission = false;
 					sum = 0;
 				}
 				else

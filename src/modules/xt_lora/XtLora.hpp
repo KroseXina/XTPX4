@@ -63,6 +63,9 @@
 #include <uORB/topics/mission_result.h>
 #include <uORB/topics/input_rc.h>
 #include <uORB/topics/vehicle_global_position.h>
+#include <uORB/topics/vehicle_command.h>
+#include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/vehicle_land_detected.h>
 
 using namespace time_literals;
 
@@ -93,6 +96,8 @@ private:
 
 	/* 与lora模块的通信协议定义(uint8_t)：0xAA 0x55 length payload CRC_L CRC_H*/
 	/* lora传输的payload结构体,长度为1+4+4=9字节，整帧长度为14字节 */
+	/* 传递mission已完成的通信协议定义(uint8_t): 0XAA 0xFF id bool */
+	/* payload为0x00或0x01，整帧长度3字节 */
 	struct lora_struct
 	{
 		uint8_t node_id;
@@ -108,12 +113,15 @@ private:
 		WAIT_LENGTH,
 		WAIT_PAYLOAD,
 		WAIT_CRC1,
-		WAIT_CRC2
+		WAIT_CRC2,
+		WAIT_ID,
+		WAIT_BOOL
 	};
 
 	/* 用以接收串口数据 */
 	lora_struct _rec_struct;
 	bool _rec_struct_vaild {false};
+	bool _rec_mission_end {false};
 	parse_state _parse_state {WAIT_HEAD1};
 	uint8_t _length{0};
 	uint8_t _payload[64];
@@ -130,11 +138,21 @@ private:
 	/* 话题订阅及发布 */
 	uORB::Publication<transponder_report_s> _transponder_report_pub{ORB_ID(transponder_report)};
 	uORB::Publication<mission_s>            _mission_pub{ORB_ID(mission)};
+	uORB::Publication<vehicle_command_s>    _vehicle_command_pub{ORB_ID(vehicle_command)};
 	uORB::Subscription                      _input_rc_sub{ORB_ID(input_rc)};
 	uORB::Subscription                      _global_pos_sub{ORB_ID(vehicle_global_position)};
+	uORB::Subscription                      _vehicle_status_sub{ORB_ID(vehicle_status)};
+	uORB::Subscription                      _vehicle_land_sub{ORB_ID(vehicle_land_detected)};
+	uORB::Subscription                      _mission_result_sub{ORB_ID(mission_result)};
 
 	input_rc_s                 _input_rc;
 	vehicle_global_position_s  _global_pos;
+	vehicle_status_s           _vehicle_sta;
+	vehicle_land_detected_s    _vehicle_land;
+	mission_result_s           _mission_result;
+
+	bool _vehicle_in_mission{false};
+	uint8_t _sys_id {0};
 
 	/* 函数区域 */
 	bool  open_uart();
@@ -144,4 +162,6 @@ private:
 	void publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon);
 	// 根据目标经纬度信息，生成航点/任务信息
 	void create_waypoint();
+	// px4控制指令
+	void publish_vehicle_command(uint16_t command, float param1, float param2, float param3);
 };

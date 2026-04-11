@@ -60,9 +60,53 @@ XtLora::~XtLora()
 
 void XtLora::run()
 {
+#ifdef __PX4_POSIX
+	// 仿真环境中，测试创建目标点及生成航点
+	// 仅在xt_lora start时生成一次
+	if(_global_pos_sub.copy(&_global_pos) && _global_pos.lat_lon_valid)
+	{
+		double lat_s = _global_pos.lat;
+		double lon_s = _global_pos.lon;
+		publish_transponder_report(1,(lat_s + 0.0005)*1e7,(lon_s + 0.0005)*1e7);
+		publish_transponder_report(2,(lat_s + 0.0005)*1e7,(lon_s - 0.0005)*1e7);
+		usleep(100000);
+		create_waypoint();
+		if(_vehicle_status_sub.update(&_vehicle_sta))
+		{
+			// 若还未解锁，先解锁
+			if(_vehicle_sta.arming_state == vehicle_status_s::ARMING_STATE_DISARMED)
+				publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1, NAN, NAN);
+			// 进入mission
+			publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_MISSION_START, 0, NAN, NAN);
+		}
+		usleep(500000); //等待vehicle_status话题更新
+		if(_vehicle_status_sub.update(&_vehicle_sta) && (_vehicle_sta.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION))
+			_vehicle_in_mission = true;
+
+	}
+
+	while (!should_exit())
+	{
+		if(_vehicle_status_sub.update(&_vehicle_sta) && _vehicle_land_sub.update(&_vehicle_land) && _vehicle_in_mission)
+		{
+			if((_vehicle_sta.nav_state != vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) && _vehicle_land.landed)
+			{
+				PX4_INFO("Xtlora: Mission complete.");
+				_vehicle_in_mission = false;
+			}
+		}
+		usleep(200000);
+	}
+
+
+#else
 	if(!open_uart())
 		return;
 	//PX4_INFO("Open /dev/ttyS2 success.");
+	if(_vehicle_status_sub.update(&_vehicle_sta))
+	{
+		_sys_id = _vehicle_sta.system_id;
+	}
 
 	uint8_t buffer[128];
 
@@ -73,7 +117,7 @@ void XtLora::run()
 		fds.fd = _fd;
 		fds.events = POLLIN;
 
-		int ret = px4_poll(&fds, 1, 200); //200ms超时
+		int ret = px4_poll(&fds, 1, 500); //500ms超时
 
 		if(ret > 0 && (fds.revents & POLLIN))
 		{
@@ -81,11 +125,9 @@ void XtLora::run()
 			if(n > 0)
 				//收到数据，拼帧
 				handle_receive_data(buffer,n);
+
 			if(_rec_struct_vaild)
 			{
-				// PX4_INFO("receive data: node--%d, lat--%d, lon--%d",
-				// 	_rec_struct.node_id,_rec_struct.lat,_rec_struct.lon);
-
 				publish_transponder_report(_rec_struct.node_id,_rec_struct.lat,_rec_struct.lon);
 				_rec_struct_vaild = false;
 
@@ -105,10 +147,52 @@ void XtLora::run()
 					waypoint_valid = rc_trigger_now;
 				}
 			}
+
+			// 前一个飞机结束mission后，自动执行mission
+			if(_rec_mission_end)
+			{
+				create_waypoint();
+				if(_vehicle_status_sub.update(&_vehicle_sta))
+				{
+					// 若还未解锁，先解锁
+					if(_vehicle_sta.arming_state == vehicle_status_s::ARMING_STATE_DISARMED)
+						publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1, NAN, NAN);
+					// 进入mission
+					publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_MISSION_START, 0, NAN, NAN);
+				}
+				_rec_mission_end = false;
+			}
 		}
+
+		_vehicle_status_sub.update(&_vehicle_sta);
+		_vehicle_land_sub.update(&_vehicle_land);
+		_mission_result_sub.update(&_mission_result);
+
+		// 判断飞机进入了mission并且已经起飞
+		if((_vehicle_sta.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION) && !_vehicle_land.landed)
+			_vehicle_in_mission = true;
+
+		uint8_t mission_end = 0x00;
+		// 判断飞机完成了最后一个seq，并已经降落(防止中途切换模式并降落导致错误触发)
+		if(_vehicle_in_mission && (_mission_result.seq_total > 0) &&
+			(_mission_result.seq_current >= (_mission_result.seq_total - 1)) && _vehicle_land.landed)
+		{
+			// mission已经结束
+			mission_end = 0x01;
+			_vehicle_in_mission = false;
+		}
+
+		// 与lora模块保持通信
+		uint8_t send_buf[4];
+		send_buf[0] = 0xAA;
+		send_buf[1] = 0xFF;
+		send_buf[2] = _sys_id;
+		send_buf[3] = mission_end;
+		::write(_fd,send_buf,sizeof(send_buf));
 	}
 
 	::close(_fd);
+#endif
 }
 
 bool XtLora::open_uart()
@@ -146,6 +230,7 @@ bool XtLora::open_uart()
 
 void XtLora::handle_receive_data(uint8_t *data, int len)
 {
+	uint16_t cal_crc;
 	for(int i=0;i<len;i++)
 	{
 		uint8_t byte = data[i];
@@ -156,8 +241,10 @@ void XtLora::handle_receive_data(uint8_t *data, int len)
 				_parse_state = WAIT_HEAD2;
 			break;
 		case WAIT_HEAD2:
-			if(byte == 0x55)
+			if(byte == 0x55) //是lora定位信息
 				_parse_state = WAIT_LENGTH;
+			else if(byte == 0xFF)  //是mission通知信息
+				_parse_state = WAIT_ID;
 			else
 				_parse_state = WAIT_HEAD1;
 			break;
@@ -182,7 +269,7 @@ void XtLora::handle_receive_data(uint8_t *data, int len)
 		case WAIT_CRC2:
 			_recv_rcr |= ((uint16_t)byte << 8);
 			//收到完整一帧，进行校验
-			uint16_t cal_crc = crc_ccitt(_payload,_length);
+			cal_crc = crc_ccitt(_payload,_length);
 			if(cal_crc == _recv_rcr)
 			{
 				//通过校验
@@ -198,6 +285,17 @@ void XtLora::handle_receive_data(uint8_t *data, int len)
 
 				_rec_struct_vaild = true;
 			}
+			_parse_state = WAIT_HEAD1;
+			break;
+		case WAIT_ID:
+			if(byte == (_sys_id - 1))  // 仅接收前一个id的信息
+				_parse_state = WAIT_BOOL;
+			else
+				_parse_state = WAIT_HEAD1;
+			break;
+		case WAIT_BOOL:
+			if(byte == 0x01)
+				_rec_mission_end = true;
 			_parse_state = WAIT_HEAD1;
 			break;
 		}
@@ -398,6 +496,23 @@ void XtLora::create_waypoint()
 	usleep(100000);
 	_mission_pub.publish(mission);
 
+}
+
+void XtLora::publish_vehicle_command(uint16_t command, float param1, float param2, float param3)
+{
+	vehicle_command_s msg{};
+	msg.timestamp = hrt_absolute_time();
+	msg.param1 = param1;
+	msg.param2 = param2;
+	msg.param3 = param3;
+	msg.command = command;
+	msg.target_system = 1;
+	msg.target_component = 1;
+	msg.source_system = 1;
+	msg.source_component = 1;
+	msg.from_external = false;
+
+	_vehicle_command_pub.publish(msg);
 }
 
 int XtLora::task_spawn(int argc, char *argv[])

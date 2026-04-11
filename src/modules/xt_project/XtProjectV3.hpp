@@ -104,6 +104,7 @@ private:
 	uint16_t                                        pwm_out{1000};
 	float                                           weight_total{0.0f};
 	uint16_t                                        sum{0};
+	bool                                            inMission{false};
 
 	/* 为避免与遥控器可能使用的AUX1/2冲突，使用AUX3控制PWM输出 */
 	void publish_manual_control_setpoint(uint16_t pwm);
