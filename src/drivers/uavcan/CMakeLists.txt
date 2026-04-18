@@ -182,6 +182,7 @@ px4_add_module(
 		sensors/ice_status.cpp
 		sensors/hygrometer.cpp
 		sensors/safety_button.cpp
+		sensors/key_value.cpp
 	MODULE_CONFIG
 		module.yaml
 		uavcan_params.yaml

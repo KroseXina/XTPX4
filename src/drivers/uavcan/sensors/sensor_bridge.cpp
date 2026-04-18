@@ -81,6 +81,7 @@
 #if defined(CONFIG_UAVCAN_SENSOR_SAFETY_BUTTON)
 #include "safety_button.hpp"
 #endif
+#include "key_value.hpp"
 
 /*
  * IUavcanSensorBridge
@@ -243,6 +244,9 @@ void IUavcanSensorBridge::make_all(uavcan::INode &node, List<IUavcanSensorBridge
 	}
 
 #endif
+
+	// key value
+	list.add(new UavcanKeyValueBridge(node));
 }
 
 /*

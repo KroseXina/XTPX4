@@ -283,6 +283,7 @@ set(msg_files
 	versioned/VehicleStatus.msg
 	versioned/VtolVehicleStatus.msg
 	versioned/Wind.msg
+	XtDronecanKeyvalue.msg
 )
 list(SORT msg_files)
 

@@ -110,6 +110,10 @@ publications:
     type: px4_msgs::msg::GimbalDeviceAttitudeStatus
     rate_limit: 20.
 
+  - topic: /fmu/out/xt_dronecan_keyvalue
+    type: px4_msgs::msg::XtDronecanKeyvalue
+    rate_limit: 5.
+
 # Create uORB::Publication
 subscriptions:
   - topic: /fmu/in/register_ext_component_request
@@ -222,6 +226,9 @@ subscriptions:
 
   - topic: /fmu/in/landing_gear
     type: px4_msgs::msg::LandingGear
+
+  - topic: /fmu/in/transponder_report
+    type: px4_msgs::msg::TransponderReport
 
 # Subscriptions multiplexed to uORB multi-instances (optionally demultiplexed based on a message field)
 subscriptions_multi:
