@@ -73,7 +73,7 @@ void UavcanKeyValueBridge::keyvalue_cb(const
 		//其余can设备发布xt_dronecan_keyvalue
 		xt_dronecan_keyvalue_s keyvalue;
 		keyvalue.timestamp = hrt_absolute_time();
-		keyvalue.key = UavcanKeyValueBridge::KEY_WEIGHT;
+		keyvalue.key = xt_dronecan_keyvalue_s::KEY_TYPE_WEIGHT;
 		keyvalue.value = msg.value;
 
 		_dronecan_keyvalue_pub.publish(keyvalue);

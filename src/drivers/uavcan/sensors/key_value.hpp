@@ -63,9 +63,4 @@ private:
 	uORB::Publication<xt_dronecan_keyvalue_s> _dronecan_keyvalue_pub{ORB_ID(xt_dronecan_keyvalue)};
 
 	PX4Rangefinder	_px4_rangefinder;
-	enum key_type
-	{
-		KEY_DISTANCE = 0,
-		KEY_WEIGHT = 1
-	};
 };
