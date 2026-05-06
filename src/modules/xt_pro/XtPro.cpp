@@ -109,14 +109,13 @@ void XtPro::run()
 		}
 
 		_vehicle_status_sub.update(&_vehicle_status);
-		_mission_result_sub.update(&_mission_result);
 		_global_pos_sub.update(&_global_pos);
 
 		//监听mission是否执行到最后一个航点
 		if(_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION)
 			_vehicle_in_mission = true;
 
-		if(_mission_result_sub.updated())
+		if(_mission_result_sub.update(&_mission_result))
 		{
 			if(_vehicle_in_mission && _mission_result.finished)
 			{
