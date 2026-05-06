@@ -110,8 +110,8 @@ publications:
     type: px4_msgs::msg::GimbalDeviceAttitudeStatus
     rate_limit: 20.
 
-  - topic: /fmu/out/xt_dronecan_keyvalue
-    type: px4_msgs::msg::XtDronecanKeyvalue
+  - topic: /fmu/out/xt_main_out
+    type: px4_msgs::msg::XtMainOut
     rate_limit: 5.
 
 # Create uORB::Publication

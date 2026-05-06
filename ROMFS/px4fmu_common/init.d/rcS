@@ -707,6 +707,7 @@ else
 	fi
 	unset BOARD_BOOTLOADER_UPGRADE
 
+	xt_pro start
 #
 # End of autostart.
 #

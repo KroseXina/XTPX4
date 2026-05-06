@@ -1,0 +1,5 @@
+menuconfig MODULES_XT_PRO
+	bool "xt_pro"
+	default n
+	---help---
+		Enable support for xt_pro
