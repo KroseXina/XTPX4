@@ -66,11 +66,20 @@ void XtPro::run()
 	_xt_out.put_finish = false;
 	_xt_out.switch_to_offboard = false;
 
+	constexpr hrt_abstime PUT_TIMEOUT = 5_s;
+	hrt_abstime PUT_STARTTIME{0};
+	float WEIGHT_EPS{0.0f};
+
+	_total_weight = get_current_weight();
+
 	while (!should_exit())
 	{
 		//维持xt_main_out的发布
 		_xt_out.timestamp = hrt_absolute_time();
 		_xt_out_pub.publish(_xt_out);
+
+		//获取料重
+		_xt_out.current_weight = get_current_weight();
 
 		//更新transponder report,并维护_targets列表
 		if(_transponder_report_sub.updated())
@@ -111,10 +120,49 @@ void XtPro::run()
 		_vehicle_status_sub.update(&_vehicle_status);
 		_global_pos_sub.update(&_global_pos);
 
-		//监听mission是否执行到最后一个航点
+		//是否进入mission
 		if(_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION)
+		{
 			_vehicle_in_mission = true;
 
+			if(_xt_in_sub.update(&_xt_in))
+			{
+				if(_xt_in.wp_reached)
+				{
+					WEIGHT_EPS = math::min(_xt_in.target_weight * 0.5f,1.0f);
+
+					if(!_putting)
+					{
+						_total_weight = _xt_out.current_weight;
+						//打开放料控制开关-->对应设置的PeripheralActuatorControls，目前选择actuator 1
+						publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR,1.0f,NAN);
+						_putting = true;
+						PUT_STARTTIME = hrt_absolute_time();
+					}
+					if((_total_weight - _xt_out.current_weight) >= (_xt_in.target_weight - WEIGHT_EPS)) //留下余量
+					{
+						_xt_out.put_finish = true;
+					}
+					//投料异常/无料保护
+					if(hrt_absolute_time() - PUT_STARTTIME >= PUT_TIMEOUT)
+					{
+						if(fabs(_total_weight - _xt_out.current_weight) < WEIGHT_EPS)
+							_xt_out.put_finish = true;
+					}
+				}
+				else
+				{
+					if(_putting)
+					{
+						publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR,-1.0f,NAN);
+						_putting = false;
+					}
+					_xt_out.put_finish = false;
+				}
+			}
+		}
+
+		//最后一个航点完成
 		if(_mission_result_sub.update(&_mission_result))
 		{
 			if(_vehicle_in_mission && _mission_result.finished)
@@ -278,6 +326,34 @@ void XtPro::create_mission()
 	}
 
 	_mission_pub.publish(mission);
+}
+
+float XtPro::get_current_weight()
+{
+	xt_dronecan_keyvalue_s msg{};
+	if(_keyvalue_sub.update(&msg))
+	{
+		if(msg.key == xt_dronecan_keyvalue_s::KEY_TYPE_WEIGHT)
+			return msg.value;
+	}
+
+	return 0.0f;
+}
+
+void XtPro::publish_vehicle_command(uint16_t command, float param1, float param2)
+{
+	vehicle_command_s msg{};
+	msg.timestamp = hrt_absolute_time();
+	msg.param1 = param1;
+	msg.param2 = param2;
+	msg.command = command;
+	msg.target_system = 1;
+	msg.target_component = 1;
+	msg.source_system = 1;
+	msg.source_component = 1;
+	msg.from_external = false;
+
+	_vehicle_cmd_pub.publish(msg);
 }
 
 int XtPro::run_trampoline(int argc, char *argv[])

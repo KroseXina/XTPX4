@@ -424,6 +424,18 @@ MissionBlock::is_mission_item_reached_or_completed()
 		if ((get_time_inside(_mission_item) < FLT_EPSILON) ||
 		    (now >= (hrt_abstime)(get_time_inside(_mission_item) * 1_s) + _time_wp_reached)) {
 			time_inside_reached = true;
+			//自定义loiter_time，由xt_main_out决定是否完成
+			if(_mission_item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT)
+			{
+				time_inside_reached = false;
+				_xt_in.timestamp = hrt_absolute_time();
+				_xt_in.target_weight = _mission_item.time_inside; //时间值映射为目标重量
+				_xt_in.wp_reached = true;
+				_xt_in_pub.publish(_xt_in);
+
+				if(_xt_out_sub.update(&_xt_out) && _xt_out.put_finish)
+					time_inside_reached = true;
+			}
 		}
 
 		// check if course for exit is reached (only applies for fixed-wing flight)
@@ -502,6 +514,12 @@ MissionBlock::is_mission_item_reached_or_completed()
 								   &curr_sp.lat, &curr_sp.lon);
 			}
 
+			//航点完成，发布一次xt_main_in
+			_xt_in.timestamp = hrt_absolute_time();
+			_xt_in.target_weight = 0.0f;
+			_xt_in.wp_reached = false;
+			_xt_in_pub.publish(_xt_in);
+
 			return true; // mission item is reached
 		}
 	}
@@ -565,11 +583,16 @@ MissionBlock::get_time_inside(const mission_item_s &item) const
 {
 	if ((item.nav_cmd == NAV_CMD_WAYPOINT
 	     && _navigator->get_vstatus()->vehicle_type == vehicle_status_s::VEHICLE_TYPE_ROTARY_WING) ||
-	    item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT ||
 	    item.nav_cmd == NAV_CMD_DELAY) {
 
 		// a negative time inside would be invalid
 		return math::max(item.time_inside, 0.0f);
+	}
+
+	if(item.nav_cmd == NAV_CMD_LOITER_TIME_LIMIT)
+	{
+		//先悬停2s，再处理排料逻辑
+		return 2.0f;
 	}
 
 	return 0.0f;

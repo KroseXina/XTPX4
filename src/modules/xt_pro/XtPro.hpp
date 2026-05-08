@@ -54,8 +54,10 @@
 #include <uORB/topics/mission_result.h>
 #include <uORB/topics/vehicle_global_position.h>
 #include <uORB/topics/vehicle_status.h>
+#include <uORB/topics/vehicle_command.h>
 #include <uORB/topics/xt_main_in.h>
 #include <uORB/topics/xt_main_out.h>
+#include <uORB/topics/xt_dronecan_keyvalue.h>
 
 using namespace time_literals;
 
@@ -87,8 +89,9 @@ public:
 
 private:
 
-	uORB::Publication<mission_s>      _mission_pub{ORB_ID(mission)};
-	uORB::Publication<xt_main_out_s>  _xt_out_pub{ORB_ID(xt_main_out)};
+	uORB::Publication<mission_s>          _mission_pub{ORB_ID(mission)};
+	uORB::Publication<xt_main_out_s>      _xt_out_pub{ORB_ID(xt_main_out)};
+	uORB::Publication<vehicle_command_s>  _vehicle_cmd_pub{ORB_ID(vehicle_command)};
 
 	uORB::Subscription                _transponder_report_sub{ORB_ID(transponder_report)};
 	uORB::Subscription                _input_rc_sub{ORB_ID(input_rc)};
@@ -96,6 +99,7 @@ private:
 	uORB::Subscription                _mission_result_sub{ORB_ID(mission_result)};
 	uORB::Subscription                _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription                _xt_in_sub{ORB_ID(xt_main_in)};
+	uORB::Subscription                _keyvalue_sub{ORB_ID(xt_dronecan_keyvalue)};
 
 	input_rc_s                        _input_rc;
 	vehicle_global_position_s         _global_pos;
@@ -116,6 +120,13 @@ private:
 
 	//根据现有的target，生成任务
 	void create_mission();
+
+	//获取料重，来自于DroneCAN的keyvalue
+	float get_current_weight();
+	float _total_weight{0.0f};
+	bool _putting{false}; //防止set actuator频繁触发
+
+	void publish_vehicle_command(uint16_t command, float param1, float param2);
 
 	//虚拟环境下使用变量
 #ifdef __PX4_POSIX
