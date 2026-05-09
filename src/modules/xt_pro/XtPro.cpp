@@ -146,7 +146,7 @@ void XtPro::run()
 					//投料异常/无料保护
 					if(hrt_absolute_time() - PUT_STARTTIME >= PUT_TIMEOUT)
 					{
-						if(fabs(_total_weight - _xt_out.current_weight) < WEIGHT_EPS)
+						if(fabsf(_total_weight - _xt_out.current_weight) < WEIGHT_EPS)
 							_xt_out.put_finish = true;
 					}
 				}
