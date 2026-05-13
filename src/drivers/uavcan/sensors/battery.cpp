@@ -138,11 +138,21 @@ UavcanBatteryBridge::battery_sub_cb(const uavcan::ReceivedDataStructure<uavcan::
 	_battery_status[instance].id = msg.battery_id;
 
 	if (_batt_update_mod[instance] == BatteryDataType::Raw) {
+		// 如果电压超过65535mv，需要移动到cell1，否则mavlink传输时会出错
+		if(msg.voltage > 65.534f)
+		{
+			_battery_status[instance].voltage_cell_v[0] = 65.534f;
+			_battery_status[instance].voltage_cell_v[1] = msg.voltage - 65.534f;
+			_battery_status[instance].cell_count = 2;
+		}
+		else
+		{
 		// Mavlink 2 needs individual cell voltages or cell[0] if cell voltages are not available.
 		_battery_status[instance].voltage_cell_v[0] = msg.voltage;
 
 		// Set cell count to 1 so the the battery code in mavlink_messages.cpp copies the values correctly (hack?)
 		_battery_status[instance].cell_count = 1;
+		}
 	}
 
 	_battery_status[instance].warning = _battery[instance]->determineWarning(_battery_status[instance].remaining);
