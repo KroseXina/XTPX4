@@ -1,0 +1,39 @@
+module_name: xt_pro
+parameters:
+- group: XT Pro
+  definitions:
+    XT_MISSION:
+      description:
+        short: 自动执行任务 @巡天科技
+        long: |-
+          决定是否自动执行任务。
+      type: enum
+      values:
+        0: 不自动执行
+        1: 自动执行
+      default: 0
+      min: 0
+      max: 1
+    XT_START_TIME:
+      description:
+        short: 任务开始时间 @巡天科技
+        long: |-
+          决定自动任务开始的时间，必须在XT_MISSION设置为1时才有用。
+          输入参数为现实北京(UTC+8)时间，例如16：30则输入1630。
+      type: int32
+      default: 2359
+      min: 0
+      max: 2359
+    XT_DURATION:
+      description:
+        short: 任务执行的周期 @巡天科技
+        long: |-
+          决定自动任务执行的周期，必须在必须在XT_MISSION设置为1时才有用。
+          输入参数为执行任务的间隔时间，单位为分钟(min)。
+          输入0表示取消周期性执行，只会执行定时好的那一次。
+      type: int32
+      default: 0
+      min: 0
+      max: 10080
+
+

@@ -374,3 +374,5 @@ fi
 
 mavlink boot_complete
 replay trystart
+
+xt_pro start

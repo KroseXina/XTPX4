@@ -43,6 +43,7 @@
 #include <dataman_client/DatamanClient.hpp>
 #include <navigator/navigation.h>
 #include <containers/Array.hpp>
+#include <limits>
 
 #include <uORB/uORB.h>
 #include <uORB/Publication.hpp>
@@ -58,6 +59,8 @@
 #include <uORB/topics/xt_main_in.h>
 #include <uORB/topics/xt_main_out.h>
 #include <uORB/topics/xt_dronecan_keyvalue.h>
+#include <uORB/topics/sensor_gps.h>
+#include <uORB/topics/parameter_update.h>
 
 using namespace time_literals;
 
@@ -100,6 +103,9 @@ private:
 	uORB::Subscription                _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription                _xt_in_sub{ORB_ID(xt_main_in)};
 	uORB::Subscription                _keyvalue_sub{ORB_ID(xt_dronecan_keyvalue)};
+	uORB::Subscription                _sensor_gps_sub{ORB_ID(sensor_gps)};
+	uORB::Subscription                _mission_sub{ORB_ID(mission)};
+	uORB::Subscription                _params_update_sub{ORB_ID(parameter_update)};
 
 	input_rc_s                        _input_rc;
 	vehicle_global_position_s         _global_pos;
@@ -126,7 +132,23 @@ private:
 	float _total_weight{0.0f};
 	bool _putting{false}; //防止set actuator频繁触发
 
+	time_t _auto_start_utc{0};
+	time_t _next_trig_utc{std::numeric_limits<time_t>::max()};
+
 	void publish_vehicle_command(uint16_t command, float param1, float param2);
+	void xt_auto_mission();
+	void xt_do_mission();
+
+	int _last_start_time{-1};
+	int _last_duration{-1};
+	bool _auto_start{false};
+	bool _auto_finished{false};
+
+	DEFINE_PARAMETERS(
+	(ParamInt<px4::params::XT_MISSION>) _param_auto_mission,
+	(ParamInt<px4::params::XT_START_TIME>) _param_start_time,
+	(ParamInt<px4::params::XT_DURATION>) _param_duration
+	)
 
 	//虚拟环境下使用变量
 #ifdef __PX4_POSIX

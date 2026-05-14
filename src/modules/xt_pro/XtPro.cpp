@@ -169,6 +169,7 @@ void XtPro::run()
 			{
 				_vehicle_in_mission = false;
 				_xt_out.switch_to_offboard = true;
+				_auto_finished = true;
 			}
 		}
 
@@ -201,6 +202,18 @@ void XtPro::run()
 				_xt_mission_valid = rc_trigger_now;
 			}
 #endif
+
+			//定时自动执行航线
+			if(_params_update_sub.updated())
+			{
+				parameter_update_s p{};
+				_params_update_sub.copy(&p);
+				updateParams();
+			}
+			if(_param_auto_mission.get() != 0)
+			{
+				xt_auto_mission();
+			}
 		}
 
 		px4_usleep(200000);  //最高5Hz执行
@@ -354,6 +367,74 @@ void XtPro::publish_vehicle_command(uint16_t command, float param1, float param2
 	msg.from_external = false;
 
 	_vehicle_cmd_pub.publish(msg);
+}
+
+void XtPro::xt_auto_mission()
+{
+	//确认目前有mission存在
+	mission_s mission{};
+	if(!_mission_sub.copy(&mission) || mission.count < 1)
+	{
+		PX4_WARN("XT: NO Valid Mission!");
+		return;
+	}
+
+	sensor_gps_s gps{};
+	_sensor_gps_sub.copy(&gps);
+	uint64_t utc_us = gps.time_utc_usec;
+	time_t utc_sec = utc_us / 1000000ULL;
+	struct tm *tm_now = gmtime(&utc_sec);
+
+	int start_time = _param_start_time.get();
+	int duration   = _param_duration.get();
+
+	if(_last_start_time != start_time)
+	{
+		_auto_start = true;
+		_last_start_time = start_time;
+
+		uint16_t target_hour = start_time / 100;
+		uint16_t target_min = start_time % 100;
+		if(target_hour >= 24 || target_min >= 60)
+			return;
+
+		struct tm target_tm = *tm_now;
+		//转换北京时间
+		target_tm.tm_hour = target_hour - 8;
+		target_tm.tm_min = target_min;
+		target_tm.tm_sec = 0;
+
+		_auto_start_utc = timegm(&target_tm);
+		if (_auto_start_utc <= utc_sec)
+			_auto_start_utc += 24 * 3600;
+
+		_next_trig_utc = std::numeric_limits<time_t>::max();
+	}
+
+	if(_auto_finished || _last_duration != duration)
+	{
+		_auto_finished = false;
+		_last_duration = duration;
+
+		if(duration > 0)
+			_next_trig_utc = utc_sec + duration * 60;
+		else
+			_next_trig_utc = std::numeric_limits<time_t>::max();
+	}
+
+	if((_auto_start && utc_sec >= _auto_start_utc) || (utc_sec >= _next_trig_utc))
+	{
+		_auto_start = false;
+		xt_do_mission();
+	}
+}
+
+void XtPro::xt_do_mission()
+{
+	//解锁
+	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1, NAN);
+	//执行任务
+	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_MISSION_START,0,NAN);
 }
 
 int XtPro::run_trampoline(int argc, char *argv[])

@@ -36,5 +36,7 @@ px4_add_module(
 	SRCS
 		XtPro.cpp
 		XtPro.hpp
+	MODULE_CONFIG
+		xt_pro_params.yaml
 	DEPENDS
 	)
