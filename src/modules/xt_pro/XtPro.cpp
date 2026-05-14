@@ -390,7 +390,6 @@ void XtPro::xt_auto_mission()
 
 	if(_last_start_time != start_time)
 	{
-		_auto_start = true;
 		_last_start_time = start_time;
 
 		uint16_t target_hour = start_time / 100;
@@ -408,23 +407,23 @@ void XtPro::xt_auto_mission()
 		if (_auto_start_utc <= utc_sec)
 			_auto_start_utc += 24 * 3600;
 
-		_next_trig_utc = std::numeric_limits<time_t>::max();
+		_next_trig_utc = 0;
 	}
 
-	if(_auto_finished || _last_duration != duration)
+	if(_auto_finished)
 	{
 		_auto_finished = false;
-		_last_duration = duration;
 
 		if(duration > 0)
 			_next_trig_utc = utc_sec + duration * 60;
 		else
-			_next_trig_utc = std::numeric_limits<time_t>::max();
+			_next_trig_utc = 0;
 	}
 
-	if((_auto_start && utc_sec >= _auto_start_utc) || (utc_sec >= _next_trig_utc))
+	if(((_auto_start_utc > 0) && (utc_sec >= _auto_start_utc))
+		|| ((_next_trig_utc > 0) && (utc_sec >= _next_trig_utc)))
 	{
-		_auto_start = false;
+		_auto_start_utc = 0;
 		xt_do_mission();
 	}
 }
