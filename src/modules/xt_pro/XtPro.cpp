@@ -70,7 +70,8 @@ void XtPro::run()
 	hrt_abstime PUT_STARTTIME{0};
 	float WEIGHT_EPS{0.0f};
 
-	_total_weight = get_current_weight();
+	static float total_weight = get_current_weight();
+	_param_auto_mission.reset();   //每次启动让auto mission失效
 
 	while (!should_exit())
 	{
@@ -121,9 +122,11 @@ void XtPro::run()
 		_global_pos_sub.update(&_global_pos);
 
 		//是否进入mission
+		static bool vehicle_in_mission = false;
+		static bool putting = false;
 		if(_vehicle_status.nav_state == vehicle_status_s::NAVIGATION_STATE_AUTO_MISSION)
 		{
-			_vehicle_in_mission = true;
+			vehicle_in_mission = true;
 
 			if(_xt_in_sub.update(&_xt_in))
 			{
@@ -131,31 +134,31 @@ void XtPro::run()
 				{
 					WEIGHT_EPS = math::min(_xt_in.target_weight * 0.5f,1.0f);
 
-					if(!_putting)
+					if(!putting)
 					{
-						_total_weight = _xt_out.current_weight;
+						total_weight = _xt_out.current_weight;
 						//打开放料控制开关-->对应设置的PeripheralActuatorControls，目前选择actuator 1
 						publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR,1.0f,NAN);
-						_putting = true;
+						putting = true;
 						PUT_STARTTIME = hrt_absolute_time();
 					}
-					if((_total_weight - _xt_out.current_weight) >= (_xt_in.target_weight - WEIGHT_EPS)) //留下余量
+					if((total_weight - _xt_out.current_weight) >= (_xt_in.target_weight - WEIGHT_EPS)) //留下余量
 					{
 						_xt_out.put_finish = true;
 					}
 					//投料异常/无料保护
 					if(hrt_absolute_time() - PUT_STARTTIME >= PUT_TIMEOUT)
 					{
-						if(fabsf(_total_weight - _xt_out.current_weight) < WEIGHT_EPS)
+						if(fabsf(total_weight - _xt_out.current_weight) < WEIGHT_EPS)
 							_xt_out.put_finish = true;
 					}
 				}
 				else
 				{
-					if(_putting)
+					if(putting)
 					{
 						publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_DO_SET_ACTUATOR,-1.0f,NAN);
-						_putting = false;
+						putting = false;
 					}
 					_xt_out.put_finish = false;
 				}
@@ -165,9 +168,9 @@ void XtPro::run()
 		//最后一个航点完成
 		if(_mission_result_sub.update(&_mission_result))
 		{
-			if(_vehicle_in_mission && _mission_result.finished)
+			if(vehicle_in_mission && _mission_result.finished)
 			{
-				_vehicle_in_mission = false;
+				vehicle_in_mission = false;
 				_xt_out.switch_to_offboard = true;
 				_auto_finished = true;
 			}
@@ -189,6 +192,7 @@ void XtPro::run()
 			}
 #else
 			//真实飞机使用遥控器指令生成航线
+			static bool rc_trigger_last = false;
 			bool rc_trigger_now = false;
 			if(_input_rc_sub.update(&_input_rc))
 			{
@@ -196,10 +200,10 @@ void XtPro::run()
 				if(channel < _input_rc.channel_count)
 					rc_trigger_now = (_input_rc.values[channel] > 1700);
 				//边沿触发
-				if(rc_trigger_now && !_xt_mission_valid)
+				if(rc_trigger_now && !rc_trigger_last)
 					create_mission();
 
-				_xt_mission_valid = rc_trigger_now;
+				rc_trigger_last = rc_trigger_now;
 			}
 #endif
 
@@ -379,6 +383,10 @@ void XtPro::xt_auto_mission()
 		return;
 	}
 
+	static time_t auto_start_utc = 0;
+	static time_t next_trig_utc = 0;
+	static int last_start_time = -1;
+
 	sensor_gps_s gps{};
 	_sensor_gps_sub.copy(&gps);
 	uint64_t utc_us = gps.time_utc_usec;
@@ -388,9 +396,9 @@ void XtPro::xt_auto_mission()
 	int start_time = _param_start_time.get();
 	int duration   = _param_duration.get();
 
-	if(_last_start_time != start_time)
+	if(last_start_time != start_time)
 	{
-		_last_start_time = start_time;
+		last_start_time = start_time;
 
 		uint16_t target_hour = start_time / 100;
 		uint16_t target_min = start_time % 100;
@@ -403,11 +411,11 @@ void XtPro::xt_auto_mission()
 		target_tm.tm_min = target_min;
 		target_tm.tm_sec = 0;
 
-		_auto_start_utc = timegm(&target_tm);
-		if (_auto_start_utc <= utc_sec)
-			_auto_start_utc += 24 * 3600;
+		auto_start_utc = timegm(&target_tm);
+		if (auto_start_utc <= utc_sec)
+			auto_start_utc += 24 * 3600;
 
-		_next_trig_utc = 0;
+		next_trig_utc = 0;
 	}
 
 	if(_auto_finished)
@@ -415,15 +423,15 @@ void XtPro::xt_auto_mission()
 		_auto_finished = false;
 
 		if(duration > 0)
-			_next_trig_utc = utc_sec + duration * 60;
+			next_trig_utc = utc_sec + duration * 60;
 		else
-			_next_trig_utc = 0;
+			next_trig_utc = 0;
 	}
 
-	if(((_auto_start_utc > 0) && (utc_sec >= _auto_start_utc))
-		|| ((_next_trig_utc > 0) && (utc_sec >= _next_trig_utc)))
+	if(((auto_start_utc > 0) && (utc_sec >= auto_start_utc))
+		|| ((next_trig_utc > 0) && (utc_sec >= next_trig_utc)))
 	{
-		_auto_start_utc = 0;
+		auto_start_utc = 0;
 		xt_do_mission();
 	}
 }
@@ -431,7 +439,7 @@ void XtPro::xt_auto_mission()
 void XtPro::xt_do_mission()
 {
 	//解锁
-	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1, NAN);
+	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1, 21196.f);
 	//执行任务
 	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_MISSION_START,0,NAN);
 }

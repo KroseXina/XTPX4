@@ -53,14 +53,15 @@ extern "C" __EXPORT int tf02pro_main(int argc, char *argv[])
 	int ch;
 	using ThisDriver = TF02PRO;
 	BusCLIArguments cli{true, false};
-	cli.rotation = (Rotation)distance_sensor_s::ROTATION_DOWNWARD_FACING;
+	cli.rotation = (Rotation)distance_sensor_s::ROTATION_FORWARD_FACING;
 	cli.default_i2c_frequency = 400000;  // Fast speed (400Khz)
 	cli.i2c_address = TF02PRO_BASEADDR;
 
 	while ((ch = cli.getOpt(argc, argv, "R:")) != EOF) {
 		switch (ch) {
 		case 'R':
-			cli.rotation = (Rotation)atoi(cli.optArg());
+			//cli.rotation = (Rotation)atoi(cli.optArg());
+			cli.rotation = (Rotation)distance_sensor_s::ROTATION_FORWARD_FACING;
 			break;
 		}
 	}

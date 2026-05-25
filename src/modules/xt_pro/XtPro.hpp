@@ -118,22 +118,13 @@ private:
 	static constexpr int MAX_TARGET = 50;
 	px4::Array<transponder_report_s,MAX_TARGET> _targets{};
 	int _target_count{0};
-	bool _xt_mission_valid{false};
-	int _trig_count{0};
-
-	bool _vehicle_in_mission{false};
 
 	//根据现有的target，生成任务
 	void create_mission();
 
 	//获取料重，来自于DroneCAN的keyvalue
 	float get_current_weight();
-	float _total_weight{0.0f};
-	bool _putting{false}; //防止set actuator频繁触发
 
-	time_t _auto_start_utc{0};
-	time_t _next_trig_utc{0};
-	int _last_start_time{-1};
 	bool _auto_finished{false};
 
 	void publish_vehicle_command(uint16_t command, float param1, float param2);
