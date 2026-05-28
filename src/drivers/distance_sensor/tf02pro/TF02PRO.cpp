@@ -133,6 +133,9 @@ int TF02PRO::collect()
 
 		_px4_rangefinder.update(timestamp_sample, distance_m);
 	}
+	else{
+		_px4_rangefinder.update(timestamp_sample, TF02PRO_MAX_DISTANCE, 0);
+	}
 
 	perf_end(_sample_perf);
 	return PX4_OK;
