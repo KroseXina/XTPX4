@@ -57,7 +57,8 @@ XtPro::XtPro() : ModuleParams(nullptr)
 
 XtPro::~XtPro()
 {
-
+	if(_fd >= 0)
+		::close(_fd);
 }
 
 void XtPro::run()
@@ -71,52 +72,46 @@ void XtPro::run()
 	float WEIGHT_EPS{0.0f};
 
 	static float total_weight = get_current_weight();
-	_param_auto_mission.reset();   //每次启动让auto mission失效
+
+#ifndef __PX4_POSIX
+	if(!open_uart()) return;
+	uint8_t buffer[128];
+
+	px4_pollfd_struct_t fds[1];
+	fds[0].fd = _fd;
+	fds[0].events = POLLIN;
+#endif
 
 	while (!should_exit())
 	{
+#ifndef __PX4_POSIX
+		int ret = px4_poll(fds, 1, 200); //200ms超时，最快5Hz执行该模块
+
+		//处理串口
+		if(ret > 0 && (fds[0].revents & POLLIN))
+		{
+			int n = ::read(_fd,buffer,sizeof(buffer));
+			if(n > 0)
+				//收到数据，拼帧
+				handle_receive_data(buffer,n);
+		}
+
+		//处理信标
+		if(_rec_struct_vaild)
+		{
+			publish_transponder_report(_rec_struct.node_id,_rec_struct.lat,_rec_struct.lon);
+			_rec_struct_vaild = false;
+		}
+#else
+		px4_usleep(200000);
+
+#endif
 		//维持xt_main_out的发布
 		_xt_out.timestamp = hrt_absolute_time();
 		_xt_out_pub.publish(_xt_out);
 
 		//获取料重
 		_xt_out.current_weight = get_current_weight();
-
-		//更新transponder report,并维护_targets列表
-		if(_transponder_report_sub.updated())
-		{
-			transponder_report_s msg{};
-			bool found = false;
-			_transponder_report_sub.copy(&msg);
-			if(msg.icao_address == 0) continue;
-			for(int i=0;i<_target_count;++i)
-			{
-				if(_targets[i].icao_address == msg.icao_address)
-				{
-					_targets[i] = msg;
-					found = true;
-					break;
-				}
-			}
-
-			if(!found && _target_count < MAX_TARGET)
-			{
-				_targets[_target_count++] = msg;
-			}
-			//为_targets排序
-			for (int i = 0; i < _target_count - 1; ++i)
-			{
-				for (int j = i + 1; j < _target_count; ++j)
-				{
-					if (_targets[j].icao_address < _targets[i].icao_address)
-					{
-						auto tmp = _targets[i];
-						_targets[i] = _targets[j];
-						_targets[j] = tmp;
-					}
-				}
-			}
-		}
 
 		_vehicle_status_sub.update(&_vehicle_status);
 		_global_pos_sub.update(&_global_pos);
@@ -172,7 +167,7 @@ void XtPro::run()
 			{
 				vehicle_in_mission = false;
 				_xt_out.switch_to_offboard = true;
-				_auto_finished = true;
+				_mission_finished = true;
 			}
 		}
 
@@ -207,20 +202,25 @@ void XtPro::run()
 			}
 #endif
 
-			//定时自动执行航线
+			//根据id自动起飞执行投喂
 			if(_params_update_sub.updated())
 			{
 				parameter_update_s p{};
 				_params_update_sub.copy(&p);
 				updateParams();
 			}
-			if(_param_auto_mission.get() != 0)
+			uint8_t xt_id = _param_id.get();
+			//当id>0时才执行起飞以及发送任务完成的信息，并且按照n->n+1->n+2的顺序起飞
+			if(xt_id > 0)
 			{
-				xt_auto_mission();
-			}
-		}
+				if(_rec_mission_end)
+					do_recv_mission_end(xt_id);
 
-		px4_usleep(200000);  //最高5Hz执行
+				if(_mission_finished)
+					do_send_mission_end(xt_id);
+			}
+
+		}
 	}
 }
 
@@ -373,7 +373,7 @@ void XtPro::publish_vehicle_command(uint16_t command, float param1, float param2
 	_vehicle_cmd_pub.publish(msg);
 }
 
-void XtPro::xt_auto_mission()
+void XtPro::xt_do_mission()
 {
 	//确认目前有mission存在
 	mission_s mission{};
@@ -382,66 +382,238 @@ void XtPro::xt_auto_mission()
 		PX4_WARN("XT: NO Valid Mission!");
 		return;
 	}
-
-	static time_t auto_start_utc = 0;
-	static time_t next_trig_utc = 0;
-	static int last_start_time = -1;
-
-	sensor_gps_s gps{};
-	_sensor_gps_sub.copy(&gps);
-	uint64_t utc_us = gps.time_utc_usec;
-	time_t utc_sec = utc_us / 1000000ULL;
-	struct tm *tm_now = gmtime(&utc_sec);
-
-	int start_time = _param_start_time.get();
-	int duration   = _param_duration.get();
-
-	if(last_start_time != start_time)
-	{
-		last_start_time = start_time;
-
-		uint16_t target_hour = start_time / 100;
-		uint16_t target_min = start_time % 100;
-		if(target_hour >= 24 || target_min >= 60)
-			return;
-
-		struct tm target_tm = *tm_now;
-		//转换北京时间
-		target_tm.tm_hour = target_hour - 8;
-		target_tm.tm_min = target_min;
-		target_tm.tm_sec = 0;
-
-		auto_start_utc = timegm(&target_tm);
-		if (auto_start_utc <= utc_sec)
-			auto_start_utc += 24 * 3600;
-
-		next_trig_utc = 0;
-	}
-
-	if(_auto_finished)
-	{
-		_auto_finished = false;
-
-		if(duration > 0)
-			next_trig_utc = utc_sec + duration * 60;
-		else
-			next_trig_utc = 0;
-	}
-
-	if(((auto_start_utc > 0) && (utc_sec >= auto_start_utc))
-		|| ((next_trig_utc > 0) && (utc_sec >= next_trig_utc)))
-	{
-		auto_start_utc = 0;
-		xt_do_mission();
-	}
-}
-
-void XtPro::xt_do_mission()
-{
 	//解锁
 	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_COMPONENT_ARM_DISARM, 1, 21196.f);
 	//执行任务
 	publish_vehicle_command(vehicle_command_s::VEHICLE_CMD_MISSION_START,0,NAN);
+}
+
+//暂时固定使用GPS2口
+bool XtPro::open_uart()
+{
+	_fd = ::open(CONFIG_BOARD_SERIAL_GPS2,O_RDWR | O_NOCTTY | O_NONBLOCK);
+	if(_fd < 0)
+	{
+		PX4_ERR("Open lora uart failed.");
+		return false;
+	}
+
+	struct termios config;
+	tcgetattr(_fd,&config);
+	cfmakeraw(&config);
+
+	//设置波特率  115200
+	cfsetispeed(&config,B115200);
+	cfsetospeed(&config,B115200);
+
+	//8N1
+	config.c_cflag &= ~PARENB;
+    	config.c_cflag &= ~CSTOPB;
+    	config.c_cflag &= ~CSIZE;
+    	config.c_cflag |= CS8;
+   	config.c_cflag |= (CLOCAL | CREAD);
+    	config.c_lflag &= ~(ICANON | ECHO | ECHOE | ISIG);
+    	config.c_iflag &= ~(IXON | IXOFF | IXANY);
+    	config.c_oflag &= ~OPOST;
+
+    	tcsetattr(_fd, TCSANOW, &config);
+
+    	return true;
+}
+
+void XtPro::handle_receive_data(uint8_t *data, int len)
+{
+	static parse_state parse = WAIT_HEAD1;
+	static uint8_t payload[64];
+	static uint8_t index = 0;
+	static uint8_t length = 0;
+
+	uint16_t recv_rcr = 0;
+	uint16_t cal_crc;
+
+	for(int i=0;i<len;i++)
+	{
+		uint8_t byte = data[i];
+		switch (parse)
+		{
+		case WAIT_HEAD1:
+			if(byte == 0xAA)
+				parse = WAIT_HEAD2;
+			break;
+		case WAIT_HEAD2:
+			if(byte == 0x55) //是lora定位信息
+				parse = WAIT_LENGTH;
+			else if(byte == 0xFF)  //是mission通知信息
+				parse = WAIT_ID;
+			else
+				parse = WAIT_HEAD1;
+			break;
+        	case WAIT_LENGTH:
+            		length = byte;
+            		index = 0;
+
+            		if (length == 0 || length > sizeof(payload))
+                		parse = WAIT_HEAD1;
+            		else
+                		parse = WAIT_PAYLOAD;
+            		break;
+		case WAIT_PAYLOAD:
+			payload[index++] = byte;
+			if(index >= length)
+				parse = WAIT_CRC1;
+			break;
+		case WAIT_CRC1:
+			recv_rcr = byte;
+			parse = WAIT_CRC2;
+			break;
+		case WAIT_CRC2:
+			recv_rcr |= ((uint16_t)byte << 8);
+			//收到完整一帧，进行校验
+			cal_crc = crc_ccitt(payload,length);
+			if(cal_crc == recv_rcr)
+			{
+				//通过校验
+				_rec_struct.node_id = payload[0];
+				_rec_struct.lat = (int32_t)payload[1]
+						|((int32_t)payload[2] << 8)
+						|((int32_t)payload[3] << 16)
+						|((int32_t)payload[4] << 24);
+				_rec_struct.lon = (int32_t)payload[5]
+						|((int32_t)payload[6] << 8)
+						|((int32_t)payload[7] << 16)
+						|((int32_t)payload[8] << 24);
+
+				_rec_struct_vaild = true;
+			}
+			parse = WAIT_HEAD1;
+			break;
+		case WAIT_ID:
+			_rec_id = byte;
+			parse = WAIT_BOOL;
+			break;
+		case WAIT_BOOL:
+			if(byte == 0x01)
+				_rec_mission_end = true;
+			parse = WAIT_HEAD1;
+			break;
+		}
+	}
+}
+
+uint16_t XtPro::crc_ccitt(const uint8_t *data, uint8_t len)
+{
+	uint16_t crc = 0xFFFF;
+	for(int i=0;i<len;i++)
+	{
+		crc ^= (uint16_t)data[i] << 8;
+		for(int j=0;j<8;j++)
+		{
+			if(crc & 0x8000)
+				crc = (crc << 1) ^ 0x1021;
+			else
+				crc <<= 1;
+		}
+	}
+	return crc;
+}
+
+//发布transponder_report，并维护targets列表
+void XtPro::publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon)
+{
+	transponder_report_s msg{};
+
+	msg.timestamp = hrt_absolute_time();
+	msg.icao_address = 1000 + node_id;
+	snprintf(msg.callsign,sizeof(msg.callsign),"XT_%02d",node_id);
+	msg.lat = static_cast<double>(lat) / 1e7;  //transponder_report_s中为double类型.degree
+	msg.lon = static_cast<double>(lon) / 1e7;
+	msg.altitude = 0;
+	msg.emitter_type = transponder_report_s::ADSB_EMITTER_TYPE_UAV;
+	msg.flags = transponder_report_s::PX4_ADSB_FLAGS_VALID_COORDS |
+		transponder_report_s::PX4_ADSB_FLAGS_VALID_ALTITUDE |
+                transponder_report_s::PX4_ADSB_FLAGS_VALID_CALLSIGN |
+		transponder_report_s::PX4_ADSB_FLAGS_RETRANSLATE;
+
+	_transponder_report_pub.publish(msg);
+
+	bool found = false;
+	for(int i=0;i<_target_count;++i)
+	{
+		if(_targets[i].icao_address == msg.icao_address)
+		{
+			_targets[i] = msg;
+			found = true;
+			break;
+		}
+	}
+
+	if(!found && _target_count < MAX_TARGET)
+	{
+		_targets[_target_count++] = msg;
+	}
+	//为_targets排序
+	for (int i = 0; i < _target_count - 1; ++i)
+	{
+		for (int j = i + 1; j < _target_count; ++j)
+		{
+			if (_targets[j].icao_address < _targets[i].icao_address)
+			{
+				auto tmp = _targets[i];
+				_targets[i] = _targets[j];
+				_targets[j] = tmp;
+			}
+		}
+	}
+}
+
+//处理收到任务完成的信息
+void XtPro::do_recv_mission_end(const uint8_t& id)
+{
+	//只在前一个id结束mission时，本id才执行，其它就忽略
+	if((id == 1) || _rec_id != (id - 1))
+		return;
+
+	static uint16_t count = 0;
+	//等待至少5s后再执行起飞（主循环5Hz执行）
+	count ++;
+	if(count > 25)
+	{
+		count = 0;
+		_rec_mission_end = false;
+		xt_do_mission();
+	}
+}
+
+//发送任务完成信息
+void XtPro::do_send_mission_end(const uint8_t& id)
+{
+	static uint16_t count = 0;
+	static uint16_t total_count = 0;
+	count ++;
+	if(count > 5)
+	{
+	count = 0;
+	total_count ++;
+
+#ifndef __PX4_POSIX
+	//避免接收失败，持续发布5次，1Hz发布
+	uint8_t send_buf[4];
+	send_buf[0] = 0xAA;
+	send_buf[1] = 0xFF;
+	send_buf[2] = id;
+	send_buf[3] = 0x01;
+	::write(_fd, send_buf, sizeof(send_buf));
+
+#else
+	PX4_INFO("XT: send mission end.");
+
+#endif
+	}
+	if(total_count > 5)
+	{
+		total_count = 0;
+		_mission_finished = false;
+	}
 }
 
 int XtPro::run_trampoline(int argc, char *argv[])

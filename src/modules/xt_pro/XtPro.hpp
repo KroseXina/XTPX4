@@ -42,6 +42,13 @@
 #include <drivers/drv_hrt.h>
 #include <dataman_client/DatamanClient.hpp>
 #include <navigator/navigation.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <poll.h>
+#include <string.h>
+#include <termios.h>
+#include <lib/mathlib/mathlib.h>
+#include <drivers/drv_hrt.h>
 #include <containers/Array.hpp>
 
 #include <uORB/uORB.h>
@@ -58,7 +65,6 @@
 #include <uORB/topics/xt_main_in.h>
 #include <uORB/topics/xt_main_out.h>
 #include <uORB/topics/xt_dronecan_keyvalue.h>
-#include <uORB/topics/sensor_gps.h>
 #include <uORB/topics/parameter_update.h>
 
 using namespace time_literals;
@@ -90,19 +96,19 @@ public:
 	void run() override;
 
 private:
+	int _fd{-1};
 
-	uORB::Publication<mission_s>          _mission_pub{ORB_ID(mission)};
-	uORB::Publication<xt_main_out_s>      _xt_out_pub{ORB_ID(xt_main_out)};
-	uORB::Publication<vehicle_command_s>  _vehicle_cmd_pub{ORB_ID(vehicle_command)};
+	uORB::Publication<mission_s>            _mission_pub{ORB_ID(mission)};
+	uORB::Publication<xt_main_out_s>        _xt_out_pub{ORB_ID(xt_main_out)};
+	uORB::Publication<vehicle_command_s>    _vehicle_cmd_pub{ORB_ID(vehicle_command)};
+	uORB::Publication<transponder_report_s> _transponder_report_pub{ORB_ID(transponder_report)};
 
-	uORB::Subscription                _transponder_report_sub{ORB_ID(transponder_report)};
 	uORB::Subscription                _input_rc_sub{ORB_ID(input_rc)};
 	uORB::Subscription                _global_pos_sub{ORB_ID(vehicle_global_position)};
 	uORB::Subscription                _mission_result_sub{ORB_ID(mission_result)};
 	uORB::Subscription                _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription                _xt_in_sub{ORB_ID(xt_main_in)};
 	uORB::Subscription                _keyvalue_sub{ORB_ID(xt_dronecan_keyvalue)};
-	uORB::Subscription                _sensor_gps_sub{ORB_ID(sensor_gps)};
 	uORB::Subscription                _mission_sub{ORB_ID(mission)};
 	uORB::Subscription                _params_update_sub{ORB_ID(parameter_update)};
 
@@ -113,11 +119,48 @@ private:
 	xt_main_in_s                      _xt_in;
 	xt_main_out_s                     _xt_out;
 
+	/* 串口通信定义 */
+		/* 与lora模块的通信协议定义(uint8_t)：0xAA 0x55 length payload CRC_L CRC_H*/
+	/* lora传输的payload结构体,长度为1+4+4=9字节，整帧长度为14字节 */
+	/* 传递mission已完成的通信协议定义(uint8_t): 0XAA 0xFF id bool */
+	/* payload为0x00或0x01，整帧长度4字节 */
+	struct lora_struct
+	{
+		uint8_t node_id;
+	   	int32_t lat; //[degE7] Latitude
+	   	int32_t lon; //[degE7] Longitude
+	};
+
+	/* 定义状态机进行拼包 */
+	enum parse_state
+	{
+		WAIT_HEAD1,
+		WAIT_HEAD2,
+		WAIT_LENGTH,
+		WAIT_PAYLOAD,
+		WAIT_CRC1,
+		WAIT_CRC2,
+		WAIT_ID,
+		WAIT_BOOL
+	};
+
+	/* 用以接收串口数据 */
+	lora_struct _rec_struct;
+	uint8_t _rec_id{0};
+	bool _rec_struct_vaild {false};
+	bool _rec_mission_end {false};
+	bool _mission_finished {false};
+
 	/* 用以生成航点 */
 	DatamanClient _dataman_client{};
 	static constexpr int MAX_TARGET = 50;
 	px4::Array<transponder_report_s,MAX_TARGET> _targets{};
 	int _target_count{0};
+
+	bool open_uart();
+	void handle_receive_data(uint8_t *data, int len);
+	uint16_t crc_ccitt(const uint8_t *data, uint8_t len);
+	void publish_transponder_report(uint8_t node_id,int32_t lat,int32_t lon);
 
 	//根据现有的target，生成任务
 	void create_mission();
@@ -125,16 +168,13 @@ private:
 	//获取料重，来自于DroneCAN的keyvalue
 	float get_current_weight();
 
-	bool _auto_finished{false};
-
 	void publish_vehicle_command(uint16_t command, float param1, float param2);
-	void xt_auto_mission();
 	void xt_do_mission();
+	void do_recv_mission_end(const uint8_t& id);
+	void do_send_mission_end(const uint8_t& id);
 
 	DEFINE_PARAMETERS(
-	(ParamInt<px4::params::XT_MISSION>) _param_auto_mission,
-	(ParamInt<px4::params::XT_START_TIME>) _param_start_time,
-	(ParamInt<px4::params::XT_DURATION>) _param_duration
+	(ParamInt<px4::params::XT_ID>) _param_id
 	)
 
 	//虚拟环境下使用变量
